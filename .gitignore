@@ -1,0 +1,37 @@
+# Build output
+build/
+bin/arduino-cli
+
+# Generated LVGL PNG assets
+src/app/png_assets.cpp
+src/app/png_assets.h
+
+# Auto-generated web assets
+src/app/web_assets.h
+src/app/project_branding.h
+
+# Arduino CLI configuration
+.arduino15/
+.cli-config.yml
+arduino-cli.yaml
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Repo-local sample workspace (not part of the template firmware)
+/sample/

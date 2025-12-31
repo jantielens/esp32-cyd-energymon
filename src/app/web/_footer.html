@@ -1,0 +1,89 @@
+        </div>
+        
+        <!-- Floating Action Footer -->
+        <div class="floating-action-footer">
+            <div class="button-group">
+                <button type="submit" class="btn btn-primary">Save and Reboot</button>
+                <button type="button" id="save-only-btn" class="btn btn-secondary">Save</button>
+                <button type="button" id="reboot-btn" class="btn btn-secondary">Reboot</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Health Widget Overlay (Expanded View) -->
+    <div style="position: fixed; top: 24px; right: 24px; z-index: 1000;">
+        <div class="health-widget-expanded" id="health-expanded" style="display:none;">
+            <div class="health-header">
+                <div class="health-status-dot" id="health-status-dot-expanded"></div>
+                <span>Device Health</span>
+                <button type="button" id="health-close" class="health-close-btn">✕</button>
+            </div>
+            <div class="health-stats">
+                <!-- System -->
+                <div class="health-stat">
+                    <span class="health-label">Uptime</span>
+                    <span class="health-value" id="health-uptime">--</span>
+                </div>
+                <div class="health-stat">
+                    <span class="health-label">Reset Reason</span>
+                    <span class="health-value" id="health-reset">--</span>
+                </div>
+                <!-- CPU -->
+                <div class="health-stat">
+                    <span class="health-label">CPU Usage</span>
+                    <span class="health-value" id="health-cpu-full">--</span>
+                </div>
+                <div class="health-stat">
+                    <span class="health-label">CPU Min/Max (60s)</span>
+                    <span class="health-value" id="health-cpu-minmax">--</span>
+                </div>
+                <div class="health-stat">
+                    <span class="health-label">Core Temp</span>
+                    <span class="health-value" id="health-temp">--</span>
+                </div>
+                <!-- Memory -->
+                <div class="health-stat">
+                    <span class="health-label">Free Heap</span>
+                    <span class="health-value" id="health-heap">--</span>
+                </div>
+                <div class="health-stat">
+                    <span class="health-label">Min Free Heap</span>
+                    <span class="health-value" id="health-heap-min">--</span>
+                </div>
+                <div class="health-stat">
+                    <span class="health-label">Heap Fragmentation</span>
+                    <span class="health-value" id="health-heap-frag">--</span>
+                </div>
+                <!-- Storage -->
+                <div class="health-stat">
+                    <span class="health-label">Flash Usage</span>
+                    <span class="health-value" id="health-flash">--</span>
+                </div>
+                <!-- Network -->
+                <div class="health-stat">
+                    <span class="health-label">WiFi RSSI</span>
+                    <span class="health-value" id="health-rssi">--</span>
+                </div>
+                <div class="health-stat">
+                    <span class="health-label">IP Address</span>
+                    <span class="health-value" id="health-ip">--</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="reboot-overlay" class="reboot-overlay" style="display:none;">
+        <div class="reboot-modal">
+            <div id="reboot-spinner" class="spinner"></div>
+            <h2 id="reboot-title">Device Rebooting</h2>
+            <p id="reboot-message">Please wait while the device restarts...</p>
+            <div id="reboot-progress-container" style="margin: 25px 0; display: none;">
+                <div class="progress-bar" style="height: 30px; background: #e0e0e0; border-radius: 15px; overflow: hidden;">
+                    <div id="reboot-progress-fill" style="height: 100%; width: 0%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); transition: width 0.3s;"></div>
+                </div>
+                <div id="reboot-progress-text" style="margin-top: 10px; font-size: 18px; font-weight: 600; color: #667eea;">0%</div>
+            </div>
+            <p id="reboot-submessage" class="small">This page will automatically refresh when ready</p>
+            <div id="reconnect-status" class="reconnect-status"></div>
+        </div>
+    </div>

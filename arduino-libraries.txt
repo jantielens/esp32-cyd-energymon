@@ -1,0 +1,38 @@
+# Arduino Libraries for ESP32 Template Project
+#
+# Format: One library per line
+# - Library names must match arduino-cli library names exactly
+# - You can specify versions: LibraryName@1.2.3
+# - Lines starting with # are comments
+# - Empty lines are ignored
+#
+# Examples:
+#   WiFi
+#   ArduinoJson@6.21.3
+#   PubSubClient@2.8
+#
+# To find library names: arduino-cli lib search <keyword>
+
+# Core libraries
+ArduinoJson@7.2.1
+ESP Async WebServer@3.9.0
+Async TCP@3.4.9
+
+# Touch libraries
+XPT2046_Touchscreen@1.4.0
+
+# Note: NetBIOS library is included in ESP32 core (no separate install needed)
+
+# Add additional libraries below:
+
+# MQTT
+PubSubClient@2.8
+
+# Display (TFT_eSPI for ESP32-2432S028R CYD and compatible displays)
+TFT_eSPI@2.5.43
+lvgl@8.4.0
+
+# Display (Arduino_GFX for JC3248W535 and other QSPI displays)
+GFX Library for Arduino@1.6.2
+ESP32_Display_Panel@0.1.4
+ESP32_IO_Expander@0.0.2
