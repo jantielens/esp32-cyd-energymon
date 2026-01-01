@@ -609,6 +609,12 @@ async function loadConfig() {
         setValueIfExists('energy_home_bar_max_kw', config.energy_home_bar_max_kw);
         setValueIfExists('energy_grid_bar_max_kw', config.energy_grid_bar_max_kw);
 
+        // Energy Monitor warning behavior
+        setValueIfExists('energy_alarm_pulse_cycle_ms', config.energy_alarm_pulse_cycle_ms);
+        setValueIfExists('energy_alarm_pulse_peak_pct', config.energy_alarm_pulse_peak_pct);
+        setValueIfExists('energy_alarm_clear_delay_ms', config.energy_alarm_clear_delay_ms);
+        setValueIfExists('energy_alarm_clear_hysteresis_mkw', config.energy_alarm_clear_hysteresis_mkw);
+
         // Energy Monitor per-category colors + thresholds
         setValueIfExists('energy_solar_color_good', config.energy_solar_color_good);
         setValueIfExists('energy_solar_color_ok', config.energy_solar_color_ok);
@@ -695,6 +701,7 @@ function extractFormFields(formData) {
                     'mqtt_host', 'mqtt_port', 'mqtt_username', 'mqtt_password', 'mqtt_interval_seconds',
                     'mqtt_topic_solar', 'mqtt_solar_value_path', 'mqtt_topic_grid', 'mqtt_grid_value_path',
                     'energy_solar_bar_max_kw', 'energy_home_bar_max_kw', 'energy_grid_bar_max_kw',
+                    'energy_alarm_pulse_cycle_ms', 'energy_alarm_pulse_peak_pct', 'energy_alarm_clear_delay_ms', 'energy_alarm_clear_hysteresis_mkw',
                     'energy_solar_color_good', 'energy_solar_color_ok', 'energy_solar_color_attention', 'energy_solar_color_warning',
                     'energy_solar_threshold_0_kw', 'energy_solar_threshold_1_kw', 'energy_solar_threshold_2_kw',
                     'energy_home_color_good', 'energy_home_color_ok', 'energy_home_color_attention', 'energy_home_color_warning',

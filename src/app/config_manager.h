@@ -84,6 +84,16 @@ struct DeviceConfig {
     float energy_home_bar_max_kw;
     float energy_grid_bar_max_kw;
 
+    // Energy monitor warning behavior (T2 alert).
+    // Pulse cycle duration for the breathing background (ms). Example: 2000.
+    uint16_t energy_alarm_pulse_cycle_ms;
+    // Pulse intensity (0-100). 100 = full peak color.
+    uint8_t energy_alarm_pulse_peak_pct;
+    // Anti-flicker: require the alarm condition to be cleared for at least this long before fading out (ms).
+    uint16_t energy_alarm_clear_delay_ms;
+    // Anti-flicker: hysteresis for clearing a T2 alarm (milli-kW). Example: 100 = 0.1 kW.
+    int32_t energy_alarm_clear_hysteresis_mkw;
+
     // Energy monitor per-category colors and thresholds
     EnergyCategoryColorConfig energy_solar_colors;
     EnergyCategoryColorConfig energy_home_colors;

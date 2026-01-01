@@ -7,37 +7,57 @@
 
 #include <math.h>
 
-static bool is_over_t2(const EnergyCategoryColorConfig* cfg, float kw, bool use_abs) {
+static int32_t kw_to_mkw_round(float kw) {
+    const float scaled = kw * 1000.0f;
+    return (int32_t)(scaled >= 0.0f ? (scaled + 0.5f) : (scaled - 0.5f));
+}
+
+static bool is_triggered_t2(const EnergyCategoryColorConfig* cfg, float kw, bool use_abs) {
     if (!cfg) return false;
     if (isnan(kw)) return false;
 
     const float v_kw = use_abs ? fabsf(kw) : kw;
-    const float scaled = v_kw * 1000.0f;
-    int32_t mkw = (int32_t)(scaled >= 0.0f ? (scaled + 0.5f) : (scaled - 0.5f));
+    const int32_t mkw = kw_to_mkw_round(v_kw);
     return mkw >= cfg->threshold_mkw[2];
 }
 
-static lv_color_t contrast_remap_for_red_bg(lv_color_t intended, uint8_t bg_red_255) {
-    // Background is pure red (0..255), so bg = (bg_red_255, 0, 0).
-    // If intended is too close to bg, blend it toward white as bg approaches 255.
-    // This keeps red-ish warning colors readable at the pulse peak.
+static bool is_cleared_t2(const EnergyCategoryColorConfig* cfg, float kw, bool use_abs, int32_t clear_hysteresis_mkw) {
+    if (!cfg) return true;
+    if (isnan(kw)) return true;
+
+    const float v_kw = use_abs ? fabsf(kw) : kw;
+    const int32_t mkw = kw_to_mkw_round(v_kw);
+    int32_t clear_threshold = cfg->threshold_mkw[2] - clear_hysteresis_mkw;
+    if (use_abs && clear_threshold < 0) clear_threshold = 0;
+    return mkw < clear_threshold;
+}
+
+static lv_color_t contrast_remap_for_bg(lv_color_t intended, lv_color_t bg, uint8_t bg_strength_255) {
+    // Hard-coded contrast policy:
+    // If intended is too close to the pulsing background near its peak, blend toward white.
     const uint8_t kStart = 160;          // start remapping after ~63% into the pulse
     const uint8_t kLowContrast = 170;    // smaller => more aggressive remap
 
-    if (bg_red_255 <= kStart) return intended;
+    if (bg_strength_255 <= kStart) return intended;
 
     const uint32_t c32 = lv_color_to32(intended);
     const uint8_t r = (uint8_t)((c32 >> 16) & 0xFFu);
     const uint8_t g = (uint8_t)((c32 >> 8) & 0xFFu);
     const uint8_t b = (uint8_t)(c32 & 0xFFu);
-    const int dr = (int)r - (int)bg_red_255;
-    const int dg = (int)g;
-    const int db = (int)b;
+
+    const uint32_t b32 = lv_color_to32(bg);
+    const uint8_t br = (uint8_t)((b32 >> 16) & 0xFFu);
+    const uint8_t bgc = (uint8_t)((b32 >> 8) & 0xFFu);
+    const uint8_t bb = (uint8_t)(b32 & 0xFFu);
+
+    const int dr = (int)r - (int)br;
+    const int dg = (int)g - (int)bgc;
+    const int db = (int)b - (int)bb;
     const int dist = (dr < 0 ? -dr : dr) + (dg < 0 ? -dg : dg) + (db < 0 ? -db : db);
 
     if (dist >= kLowContrast) return intended;
 
-    const uint8_t mix = (uint8_t)(((uint16_t)(bg_red_255 - kStart) * 255u) / (uint16_t)(255u - kStart));
+    const uint8_t mix = (uint8_t)(((uint16_t)(bg_strength_255 - kStart) * 255u) / (uint16_t)(255u - kStart));
     return lv_color_mix(lv_color_white(), intended, mix);
 }
 
@@ -189,6 +209,8 @@ void EnergyMonitorScreen::destroy() {
         alarmState = AlarmState::Off;
         alarmPhase = 0;
         alarmDir = 1;
+        alarmPeakColor = lv_color_make(255, 0, 0);
+        alarmClearStartMs = 0;
 
         lv_obj_del(screen);
         screen = nullptr;
@@ -233,8 +255,18 @@ void EnergyMonitorScreen::alarmTick() {
     if (!screen || !background) return;
     if (alarmState == AlarmState::Off) return;
 
-    const uint8_t step_active = 10;  // ~2s full cycle at 40ms ticks
-    const uint8_t step_exit = 16;    // faster fade-out
+    const uint32_t tick_ms = alarmTimer ? alarmTimer->period : 40;
+    uint16_t cycle_ms = config ? config->energy_alarm_pulse_cycle_ms : 2000;
+    if (cycle_ms < 200) cycle_ms = 200;
+    if (cycle_ms > 10000) cycle_ms = 10000;
+
+    // 0->255 in half a cycle.
+    const float step_f = (255.0f * 2.0f * (float)tick_ms) / (float)cycle_ms;
+    uint8_t step_active = (uint8_t)lroundf(step_f);
+    if (step_active < 1) step_active = 1;
+
+    uint8_t step_exit = (uint8_t)(step_active + (step_active / 2)); // ~1.5x faster
+    if (step_exit < step_active) step_exit = step_active;
 
     const uint8_t step = (alarmState == AlarmState::Exiting) ? step_exit : step_active;
 
@@ -248,6 +280,8 @@ void EnergyMonitorScreen::alarmTick() {
         if (alarmState == AlarmState::Exiting) {
             alarmState = AlarmState::Off;
             alarmPhase = 0;
+            alarmPeakColor = lv_color_make(255, 0, 0);
+            alarmClearStartMs = 0;
             if (alarmTimer) lv_timer_pause(alarmTimer);
             applyNormalStyles();
             return;
@@ -290,15 +324,20 @@ void EnergyMonitorScreen::applyNormalStyles() {
 void EnergyMonitorScreen::applyAlarmStyles() {
     if (!screen || !background) return;
 
-    // Background: dark -> full red -> dark.
-    const lv_color_t bg = lv_color_mix(lv_color_make(255, 0, 0), lv_color_black(), alarmPhase);
+    uint8_t peak_pct = config ? config->energy_alarm_pulse_peak_pct : 100;
+    if (peak_pct > 100) peak_pct = 100;
+    const uint16_t scaledMix16 = (uint16_t)alarmPhase * (uint16_t)peak_pct / 100u;
+    const uint8_t mix = (scaledMix16 > 255u) ? 255u : (uint8_t)scaledMix16;
+
+    // Background: dark -> peak color -> dark.
+    const lv_color_t bg = lv_color_mix(alarmPeakColor, lv_color_black(), mix);
     lv_obj_set_style_bg_color(background, bg, 0);
 
     // Remap only the categories that are actually causing the alarm (>= T2).
     // Non-alarm categories keep their intended color even at full-red peak.
-    const lv_color_t solar = alarmSolar ? contrast_remap_for_red_bg(intendedSolarColor, alarmPhase) : intendedSolarColor;
-    const lv_color_t home = alarmHome ? contrast_remap_for_red_bg(intendedHomeColor, alarmPhase) : intendedHomeColor;
-    const lv_color_t grid = alarmGrid ? contrast_remap_for_red_bg(intendedGridColor, alarmPhase) : intendedGridColor;
+    const lv_color_t solar = alarmSolar ? contrast_remap_for_bg(intendedSolarColor, bg, mix) : intendedSolarColor;
+    const lv_color_t home = alarmHome ? contrast_remap_for_bg(intendedHomeColor, bg, mix) : intendedHomeColor;
+    const lv_color_t grid = alarmGrid ? contrast_remap_for_bg(intendedGridColor, bg, mix) : intendedGridColor;
 
     if (solar_icon) lv_obj_set_style_img_recolor(solar_icon, solar, 0);
     if (home_icon) lv_obj_set_style_img_recolor(home_icon, home, 0);
@@ -419,29 +458,65 @@ void EnergyMonitorScreen::update() {
     intendedHomeColor = home_color;
     intendedGridColor = grid_color;
 
-    // T2 breach detection (any category -> global alarm).
-    const bool solar_t2 = is_over_t2(config ? &config->energy_solar_colors : nullptr, solar_kw, true);
-    const bool home_t2 = is_over_t2(config ? &config->energy_home_colors : nullptr, home_kw, true);
-    const bool grid_t2 = is_over_t2(config ? &config->energy_grid_colors : nullptr, grid_kw, false);
-    const bool alarmWanted = solar_t2 || home_t2 || grid_t2;
+    const bool prevSolarAlarm = alarmSolar;
+    const bool prevHomeAlarm = alarmHome;
+    const bool prevGridAlarm = alarmGrid;
 
-    // Record which categories are responsible for the alarm.
-    // These drive per-category remapping during the background pulse.
-    alarmSolar = solar_t2;
-    alarmHome = home_t2;
-    alarmGrid = grid_t2;
+    int32_t clear_hyst = config ? config->energy_alarm_clear_hysteresis_mkw : 100;
+    if (clear_hyst < 0) clear_hyst = 0;
+
+    // Per-category T2 alarm state with hysteresis (anti-flicker).
+    const EnergyCategoryColorConfig* solar_cfg = config ? &config->energy_solar_colors : nullptr;
+    const EnergyCategoryColorConfig* home_cfg = config ? &config->energy_home_colors : nullptr;
+    const EnergyCategoryColorConfig* grid_cfg = config ? &config->energy_grid_colors : nullptr;
+
+    alarmSolar = prevSolarAlarm
+        ? !is_cleared_t2(solar_cfg, solar_kw, true, clear_hyst)
+        : is_triggered_t2(solar_cfg, solar_kw, true);
+    alarmHome = prevHomeAlarm
+        ? !is_cleared_t2(home_cfg, home_kw, true, clear_hyst)
+        : is_triggered_t2(home_cfg, home_kw, true);
+    alarmGrid = prevGridAlarm
+        ? !is_cleared_t2(grid_cfg, grid_kw, false, clear_hyst)
+        : is_triggered_t2(grid_cfg, grid_kw, false);
+
+    const bool alarmWanted = alarmSolar || alarmHome || alarmGrid;
 
     if (alarmWanted) {
+        alarmClearStartMs = 0;
         if (alarmState == AlarmState::Off || alarmState == AlarmState::Exiting) {
+            if (alarmState == AlarmState::Off) {
+                // Latch peak background color: warning color of the first category that triggers.
+                if (alarmSolar && !prevSolarAlarm && solar_cfg) alarmPeakColor = lv_color_from_rgb_u32(solar_cfg->color_warning_rgb);
+                else if (alarmHome && !prevHomeAlarm && home_cfg) alarmPeakColor = lv_color_from_rgb_u32(home_cfg->color_warning_rgb);
+                else if (alarmGrid && !prevGridAlarm && grid_cfg) alarmPeakColor = lv_color_from_rgb_u32(grid_cfg->color_warning_rgb);
+                else if (alarmSolar && solar_cfg) alarmPeakColor = lv_color_from_rgb_u32(solar_cfg->color_warning_rgb);
+                else if (alarmHome && home_cfg) alarmPeakColor = lv_color_from_rgb_u32(home_cfg->color_warning_rgb);
+                else if (alarmGrid && grid_cfg) alarmPeakColor = lv_color_from_rgb_u32(grid_cfg->color_warning_rgb);
+            }
             alarmState = AlarmState::Active;
             alarmDir = 1;
             if (alarmTimer) lv_timer_resume(alarmTimer);
         }
     } else {
         if (alarmState == AlarmState::Active) {
-            alarmState = AlarmState::Exiting;
-            alarmDir = -1;
-            if (alarmTimer) lv_timer_resume(alarmTimer);
+            uint16_t clear_delay = config ? config->energy_alarm_clear_delay_ms : 800;
+            if (clear_delay > 60000) clear_delay = 60000;
+
+            if (clear_delay == 0) {
+                alarmState = AlarmState::Exiting;
+                alarmDir = -1;
+                alarmClearStartMs = 0;
+                if (alarmTimer) lv_timer_resume(alarmTimer);
+            } else {
+                if (alarmClearStartMs == 0) alarmClearStartMs = now;
+                if ((uint32_t)(now - alarmClearStartMs) >= (uint32_t)clear_delay) {
+                    alarmState = AlarmState::Exiting;
+                    alarmDir = -1;
+                    alarmClearStartMs = 0;
+                    if (alarmTimer) lv_timer_resume(alarmTimer);
+                }
+            }
         }
     }
 

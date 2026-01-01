@@ -38,6 +38,12 @@
 #define KEY_ENERGY_HOME_BAR_MAX_KW  "en_hom_m"
 #define KEY_ENERGY_GRID_BAR_MAX_KW  "en_grd_m"
 
+// Energy monitor warning behavior
+#define KEY_ENERGY_ALARM_PULSE_CYCLE_MS "en_al_pc"
+#define KEY_ENERGY_ALARM_PULSE_PEAK_PCT "en_al_pp"
+#define KEY_ENERGY_ALARM_CLEAR_DELAY_MS "en_al_cd"
+#define KEY_ENERGY_ALARM_CLEAR_HYST_MKW "en_al_ch"
+
 // Energy monitor colors/thresholds (per category)
 #define KEY_EN_SOL_CG "es_cg"
 #define KEY_EN_SOL_CO "es_co"
@@ -195,6 +201,12 @@ bool config_manager_load(DeviceConfig *config) {
         config->energy_home_bar_max_kw = 3.0f;
         config->energy_grid_bar_max_kw = 3.0f;
 
+        // Energy monitor warning defaults
+        config->energy_alarm_pulse_cycle_ms = 2000;
+        config->energy_alarm_pulse_peak_pct = 100;
+        config->energy_alarm_clear_delay_ms = 800;
+        config->energy_alarm_clear_hysteresis_mkw = 100;
+
         // Energy monitor colors/thresholds defaults
         set_energy_defaults(&config->energy_solar_colors);
         set_energy_defaults(&config->energy_home_colors);
@@ -262,6 +274,20 @@ bool config_manager_load(DeviceConfig *config) {
     config->energy_solar_bar_max_kw = preferences.getFloat(KEY_ENERGY_SOLAR_BAR_MAX_KW, 3.0f);
     config->energy_home_bar_max_kw = preferences.getFloat(KEY_ENERGY_HOME_BAR_MAX_KW, 3.0f);
     config->energy_grid_bar_max_kw = preferences.getFloat(KEY_ENERGY_GRID_BAR_MAX_KW, 3.0f);
+
+    // Load Energy Monitor warning behavior
+    config->energy_alarm_pulse_cycle_ms = preferences.getUShort(KEY_ENERGY_ALARM_PULSE_CYCLE_MS, 2000);
+    config->energy_alarm_pulse_peak_pct = preferences.getUChar(KEY_ENERGY_ALARM_PULSE_PEAK_PCT, 100);
+    config->energy_alarm_clear_delay_ms = preferences.getUShort(KEY_ENERGY_ALARM_CLEAR_DELAY_MS, 800);
+    config->energy_alarm_clear_hysteresis_mkw = preferences.getInt(KEY_ENERGY_ALARM_CLEAR_HYST_MKW, 100);
+
+    // Clamp to sane ranges
+    if (config->energy_alarm_pulse_cycle_ms < 200) config->energy_alarm_pulse_cycle_ms = 200;
+    if (config->energy_alarm_pulse_cycle_ms > 10000) config->energy_alarm_pulse_cycle_ms = 10000;
+    if (config->energy_alarm_pulse_peak_pct > 100) config->energy_alarm_pulse_peak_pct = 100;
+    if (config->energy_alarm_clear_delay_ms > 60000) config->energy_alarm_clear_delay_ms = 60000;
+    if (config->energy_alarm_clear_hysteresis_mkw < 0) config->energy_alarm_clear_hysteresis_mkw = 0;
+    if (config->energy_alarm_clear_hysteresis_mkw > 100000) config->energy_alarm_clear_hysteresis_mkw = 100000;
 
     // Clamp to sane minimums (avoid divide-by-zero)
     if (!(config->energy_solar_bar_max_kw > 0.0f)) config->energy_solar_bar_max_kw = 3.0f;
@@ -388,6 +414,23 @@ bool config_manager_save(const DeviceConfig *config) {
     preferences.putFloat(KEY_ENERGY_SOLAR_BAR_MAX_KW, solar_max);
     preferences.putFloat(KEY_ENERGY_HOME_BAR_MAX_KW, home_max);
     preferences.putFloat(KEY_ENERGY_GRID_BAR_MAX_KW, grid_max);
+
+    // Save Energy Monitor warning behavior
+    uint16_t pulse_cycle = config->energy_alarm_pulse_cycle_ms;
+    if (pulse_cycle < 200) pulse_cycle = 200;
+    if (pulse_cycle > 10000) pulse_cycle = 10000;
+    uint8_t peak_pct = config->energy_alarm_pulse_peak_pct;
+    if (peak_pct > 100) peak_pct = 100;
+    uint16_t clear_delay = config->energy_alarm_clear_delay_ms;
+    if (clear_delay > 60000) clear_delay = 60000;
+    int32_t clear_hyst = config->energy_alarm_clear_hysteresis_mkw;
+    if (clear_hyst < 0) clear_hyst = 0;
+    if (clear_hyst > 100000) clear_hyst = 100000;
+
+    preferences.putUShort(KEY_ENERGY_ALARM_PULSE_CYCLE_MS, pulse_cycle);
+    preferences.putUChar(KEY_ENERGY_ALARM_PULSE_PEAK_PCT, peak_pct);
+    preferences.putUShort(KEY_ENERGY_ALARM_CLEAR_DELAY_MS, clear_delay);
+    preferences.putInt(KEY_ENERGY_ALARM_CLEAR_HYST_MKW, clear_hyst);
 
     // Save Energy Monitor colors/thresholds
     preferences.putUInt(KEY_EN_SOL_CG, config->energy_solar_colors.color_good_rgb & 0xFFFFFF);

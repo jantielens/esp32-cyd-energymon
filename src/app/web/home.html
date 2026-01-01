@@ -167,6 +167,40 @@
                         <small>Signed kW. Must be increasing.</small>
                     </div>
                 </div>
+
+                <hr style="border: none; border-top: 1px solid #e5e5ea; margin: 18px 0;">
+
+                <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #1d1d1f;">Warning Behavior</h3>
+
+                <div class="grid-2col">
+                    <section class="section" style="padding: 0; background: transparent; box-shadow: none;">
+                        <div class="form-group">
+                            <label for="energy_alarm_pulse_cycle_ms">Pulse Cycle (ms)</label>
+                            <input type="number" id="energy_alarm_pulse_cycle_ms" name="energy_alarm_pulse_cycle_ms" min="200" max="10000" step="50" placeholder="2000">
+                            <small>Full dark → peak → dark cycle time.</small>
+                        </div>
+                    </section>
+                    <section class="section" style="padding: 0; background: transparent; box-shadow: none;">
+                            <div class="form-group">
+                                <label for="energy_alarm_pulse_peak_pct">Pulse Intensity (%)</label>
+                                <input type="number" id="energy_alarm_pulse_peak_pct" name="energy_alarm_pulse_peak_pct" min="0" max="100" step="1" placeholder="100">
+                                <small>Peak background intensity. 0 disables the flash; 100 is full peak color.</small>
+                            </div>
+                    </section>
+                    <section class="section" style="padding: 0; background: transparent; box-shadow: none;">
+                        <div class="form-group">
+                            <label for="energy_alarm_clear_delay_ms">Clear Delay (ms)</label>
+                            <input type="number" id="energy_alarm_clear_delay_ms" name="energy_alarm_clear_delay_ms" min="0" max="60000" step="50" placeholder="800">
+                            <small>Wait this long after warning clears before fading out.</small>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="form-group">
+                    <label for="energy_alarm_clear_hysteresis_mkw">Clear Hysteresis (mW)</label>
+                    <input type="number" id="energy_alarm_clear_hysteresis_mkw" name="energy_alarm_clear_hysteresis_mkw" min="0" max="100000" step="10" placeholder="100">
+                    <small>Prevents flicker around T2: must drop below (T2 − hysteresis) to clear.</small>
+                </div>
             </section>
 
             <!-- Display Settings Section (hidden if no backlight support) -->

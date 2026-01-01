@@ -297,6 +297,12 @@ void handleGetConfig(AsyncWebServerRequest *request) {
     doc["energy_home_bar_max_kw"] = current_config->energy_home_bar_max_kw;
     doc["energy_grid_bar_max_kw"] = current_config->energy_grid_bar_max_kw;
 
+    // Energy Monitor warning behavior
+    doc["energy_alarm_pulse_cycle_ms"] = current_config->energy_alarm_pulse_cycle_ms;
+    doc["energy_alarm_pulse_peak_pct"] = current_config->energy_alarm_pulse_peak_pct;
+    doc["energy_alarm_clear_delay_ms"] = current_config->energy_alarm_clear_delay_ms;
+    doc["energy_alarm_clear_hysteresis_mkw"] = current_config->energy_alarm_clear_hysteresis_mkw;
+
     // Energy Monitor per-category colors + thresholds
     {
         char c[8];
@@ -516,6 +522,50 @@ void handlePostConfig(AsyncWebServerRequest *request, uint8_t *data, size_t len,
     read_kw("energy_solar_bar_max_kw", &current_config->energy_solar_bar_max_kw);
     read_kw("energy_home_bar_max_kw", &current_config->energy_home_bar_max_kw);
     read_kw("energy_grid_bar_max_kw", &current_config->energy_grid_bar_max_kw);
+
+    // Energy Monitor warning behavior
+    auto read_u16 = [&](const char* key, uint16_t* out, uint16_t minV, uint16_t maxV) {
+        if (!doc.containsKey(key) || !out) return;
+        uint32_t v;
+        if (doc[key].is<const char*>()) {
+            const char* s = doc[key];
+            v = (uint32_t)atoi(s ? s : "0");
+        } else {
+            v = (uint32_t)(doc[key] | 0);
+        }
+        if (v < minV) v = minV;
+        if (v > maxV) v = maxV;
+        *out = (uint16_t)v;
+    };
+
+    auto read_i32 = [&](const char* key, int32_t* out, int32_t minV, int32_t maxV) {
+        if (!doc.containsKey(key) || !out) return;
+        int32_t v;
+        if (doc[key].is<const char*>()) {
+            const char* s = doc[key];
+            v = (int32_t)atol(s ? s : "0");
+        } else {
+            v = (int32_t)(doc[key] | 0);
+        }
+        if (v < minV) v = minV;
+        if (v > maxV) v = maxV;
+        *out = v;
+    };
+
+    read_u16("energy_alarm_pulse_cycle_ms", &current_config->energy_alarm_pulse_cycle_ms, 200, 10000);
+    if (doc.containsKey("energy_alarm_pulse_peak_pct")) {
+        uint32_t v;
+        if (doc["energy_alarm_pulse_peak_pct"].is<const char*>()) {
+            const char* s = doc["energy_alarm_pulse_peak_pct"];
+            v = (uint32_t)atoi(s ? s : "0");
+        } else {
+            v = (uint32_t)(doc["energy_alarm_pulse_peak_pct"] | 0);
+        }
+        if (v > 100) v = 100;
+        current_config->energy_alarm_pulse_peak_pct = (uint8_t)v;
+    }
+    read_u16("energy_alarm_clear_delay_ms", &current_config->energy_alarm_clear_delay_ms, 0, 60000);
+    read_i32("energy_alarm_clear_hysteresis_mkw", &current_config->energy_alarm_clear_hysteresis_mkw, 0, 100000);
 
     // Energy Monitor per-category colors + thresholds
     auto update_category = [&](const char* prefix, EnergyCategoryColorConfig* cfg) {

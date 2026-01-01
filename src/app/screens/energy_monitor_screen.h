@@ -48,8 +48,14 @@ private:
 
     AlarmState alarmState = AlarmState::Off;
     lv_timer_t* alarmTimer = nullptr;
-    uint8_t alarmPhase = 0;   // 0..255 (black -> red)
+    uint8_t alarmPhase = 0;   // 0..255 (black -> peak)
     int8_t alarmDir = 1;      // +1 to ramp up, -1 to ramp down
+
+    // Latched background peak color for the current alarm episode.
+    lv_color_t alarmPeakColor = lv_color_make(255, 0, 0);
+
+    // Anti-flicker: when alarm clears, require it to stay clear for a bit before exiting.
+    uint32_t alarmClearStartMs = 0;
 
     // Which categories are currently responsible for the T2 alarm.
     // Used to avoid animating/remapping non-alarm categories.
