@@ -7,6 +7,40 @@
 
 #include <math.h>
 
+static bool is_over_t2(const EnergyCategoryColorConfig* cfg, float kw, bool use_abs) {
+    if (!cfg) return false;
+    if (isnan(kw)) return false;
+
+    const float v_kw = use_abs ? fabsf(kw) : kw;
+    const float scaled = v_kw * 1000.0f;
+    int32_t mkw = (int32_t)(scaled >= 0.0f ? (scaled + 0.5f) : (scaled - 0.5f));
+    return mkw >= cfg->threshold_mkw[2];
+}
+
+static lv_color_t contrast_remap_for_red_bg(lv_color_t intended, uint8_t bg_red_255) {
+    // Background is pure red (0..255), so bg = (bg_red_255, 0, 0).
+    // If intended is too close to bg, blend it toward white as bg approaches 255.
+    // This keeps red-ish warning colors readable at the pulse peak.
+    const uint8_t kStart = 160;          // start remapping after ~63% into the pulse
+    const uint8_t kLowContrast = 170;    // smaller => more aggressive remap
+
+    if (bg_red_255 <= kStart) return intended;
+
+    const uint32_t c32 = lv_color_to32(intended);
+    const uint8_t r = (uint8_t)((c32 >> 16) & 0xFFu);
+    const uint8_t g = (uint8_t)((c32 >> 8) & 0xFFu);
+    const uint8_t b = (uint8_t)(c32 & 0xFFu);
+    const int dr = (int)r - (int)bg_red_255;
+    const int dg = (int)g;
+    const int db = (int)b;
+    const int dist = (dr < 0 ? -dr : dr) + (dg < 0 ? -dg : dg) + (db < 0 ? -db : db);
+
+    if (dist >= kLowContrast) return intended;
+
+    const uint8_t mix = (uint8_t)(((uint16_t)(bg_red_255 - kStart) * 255u) / (uint16_t)(255u - kStart));
+    return lv_color_mix(lv_color_white(), intended, mix);
+}
+
 EnergyMonitorScreen::EnergyMonitorScreen(DeviceConfig* deviceConfig, DisplayManager* manager)
     : config(deviceConfig), displayMgr(manager) {}
 
@@ -137,10 +171,25 @@ void EnergyMonitorScreen::create() {
     init_bar(&solar_bar_bg, &solar_bar_fill, -col_dx);
     init_bar(&home_bar_bg, &home_bar_fill, 0);
     init_bar(&grid_bar_bg, &grid_bar_fill, col_dx);
+
+    // Timer drives the alarm animation (background + contrast remap).
+    // Start paused; it will be resumed when a T2 breach is detected.
+    if (!alarmTimer) {
+        alarmTimer = lv_timer_create(EnergyMonitorScreen::alarmTimerCb, 40 /*ms*/, this);
+        lv_timer_pause(alarmTimer);
+    }
 }
 
 void EnergyMonitorScreen::destroy() {
     if (screen) {
+        if (alarmTimer) {
+            lv_timer_del(alarmTimer);
+            alarmTimer = nullptr;
+        }
+        alarmState = AlarmState::Off;
+        alarmPhase = 0;
+        alarmDir = 1;
+
         lv_obj_del(screen);
         screen = nullptr;
 
@@ -173,6 +222,101 @@ void EnergyMonitorScreen::show() {
 
 void EnergyMonitorScreen::hide() {
     // LVGL handles screen switching
+}
+
+void EnergyMonitorScreen::alarmTimerCb(lv_timer_t* t) {
+    EnergyMonitorScreen* self = (EnergyMonitorScreen*)t->user_data;
+    if (self) self->alarmTick();
+}
+
+void EnergyMonitorScreen::alarmTick() {
+    if (!screen || !background) return;
+    if (alarmState == AlarmState::Off) return;
+
+    const uint8_t step_active = 10;  // ~2s full cycle at 40ms ticks
+    const uint8_t step_exit = 16;    // faster fade-out
+
+    const uint8_t step = (alarmState == AlarmState::Exiting) ? step_exit : step_active;
+
+    int next = (int)alarmPhase + (int)alarmDir * (int)step;
+    if (next >= 255) {
+        next = 255;
+        alarmDir = -1;
+    } else if (next <= 0) {
+        next = 0;
+        // If we're exiting and reached dark, stop the alarm cleanly.
+        if (alarmState == AlarmState::Exiting) {
+            alarmState = AlarmState::Off;
+            alarmPhase = 0;
+            if (alarmTimer) lv_timer_pause(alarmTimer);
+            applyNormalStyles();
+            return;
+        }
+        alarmDir = 1;
+    }
+
+    alarmPhase = (uint8_t)next;
+    applyAlarmStyles();
+}
+
+void EnergyMonitorScreen::applyNormalStyles() {
+    if (!screen || !background) return;
+
+    // Normal background
+    lv_obj_set_style_bg_color(background, lv_color_black(), 0);
+
+    // Apply cached intended colors.
+    if (solar_icon) lv_obj_set_style_img_recolor(solar_icon, intendedSolarColor, 0);
+    if (home_icon) lv_obj_set_style_img_recolor(home_icon, intendedHomeColor, 0);
+    if (grid_icon) lv_obj_set_style_img_recolor(grid_icon, intendedGridColor, 0);
+
+    if (solar_value) lv_obj_set_style_text_color(solar_value, intendedSolarColor, 0);
+    if (home_value) lv_obj_set_style_text_color(home_value, intendedHomeColor, 0);
+    if (grid_value) lv_obj_set_style_text_color(grid_value, intendedGridColor, 0);
+    if (solar_unit) lv_obj_set_style_text_color(solar_unit, intendedSolarColor, 0);
+    if (home_unit) lv_obj_set_style_text_color(home_unit, intendedHomeColor, 0);
+    if (grid_unit) lv_obj_set_style_text_color(grid_unit, intendedGridColor, 0);
+
+    if (solar_bar_fill) lv_obj_set_style_bg_color(solar_bar_fill, intendedSolarColor, 0);
+    if (home_bar_fill) lv_obj_set_style_bg_color(home_bar_fill, intendedHomeColor, 0);
+    if (grid_bar_fill) lv_obj_set_style_bg_color(grid_bar_fill, intendedGridColor, 0);
+
+    // Arrows are colored in update() based on direction; keep their current glyph logic,
+    // but ensure their colors follow the same intended palette.
+    if (arrow1) lv_obj_set_style_text_color(arrow1, intendedSolarColor, 0);
+    if (arrow2) lv_obj_set_style_text_color(arrow2, intendedGridColor, 0);
+}
+
+void EnergyMonitorScreen::applyAlarmStyles() {
+    if (!screen || !background) return;
+
+    // Background: dark -> full red -> dark.
+    const lv_color_t bg = lv_color_mix(lv_color_make(255, 0, 0), lv_color_black(), alarmPhase);
+    lv_obj_set_style_bg_color(background, bg, 0);
+
+    // Remap only the categories that are actually causing the alarm (>= T2).
+    // Non-alarm categories keep their intended color even at full-red peak.
+    const lv_color_t solar = alarmSolar ? contrast_remap_for_red_bg(intendedSolarColor, alarmPhase) : intendedSolarColor;
+    const lv_color_t home = alarmHome ? contrast_remap_for_red_bg(intendedHomeColor, alarmPhase) : intendedHomeColor;
+    const lv_color_t grid = alarmGrid ? contrast_remap_for_red_bg(intendedGridColor, alarmPhase) : intendedGridColor;
+
+    if (solar_icon) lv_obj_set_style_img_recolor(solar_icon, solar, 0);
+    if (home_icon) lv_obj_set_style_img_recolor(home_icon, home, 0);
+    if (grid_icon) lv_obj_set_style_img_recolor(grid_icon, grid, 0);
+
+    if (solar_value) lv_obj_set_style_text_color(solar_value, solar, 0);
+    if (home_value) lv_obj_set_style_text_color(home_value, home, 0);
+    if (grid_value) lv_obj_set_style_text_color(grid_value, grid, 0);
+    if (solar_unit) lv_obj_set_style_text_color(solar_unit, solar, 0);
+    if (home_unit) lv_obj_set_style_text_color(home_unit, home, 0);
+    if (grid_unit) lv_obj_set_style_text_color(grid_unit, grid, 0);
+
+    if (solar_bar_fill) lv_obj_set_style_bg_color(solar_bar_fill, solar, 0);
+    if (home_bar_fill) lv_obj_set_style_bg_color(home_bar_fill, home, 0);
+    if (grid_bar_fill) lv_obj_set_style_bg_color(grid_bar_fill, grid, 0);
+
+    if (arrow1) lv_obj_set_style_text_color(arrow1, solar, 0);
+    if (arrow2) lv_obj_set_style_text_color(arrow2, grid, 0);
 }
 
 static void set_kw_label(lv_obj_t* label, float kw) {
@@ -270,27 +414,48 @@ void EnergyMonitorScreen::update() {
     const lv_color_t home_color = pick_category_color(config ? &config->energy_home_colors : nullptr, home_kw, true /*use_abs*/);
     const lv_color_t grid_color = pick_category_color(config ? &config->energy_grid_colors : nullptr, grid_kw, false /*use_abs*/);
 
-    // Apply colors to icons
-    if (solar_icon) lv_obj_set_style_img_recolor(solar_icon, solar_color, 0);
-    if (home_icon) lv_obj_set_style_img_recolor(home_icon, home_color, 0);
-    if (grid_icon) lv_obj_set_style_img_recolor(grid_icon, grid_color, 0);
+    // Cache intended colors for the timer-driven alarm renderer.
+    intendedSolarColor = solar_color;
+    intendedHomeColor = home_color;
+    intendedGridColor = grid_color;
 
-    // Apply colors to value/unit labels
-    if (solar_value) lv_obj_set_style_text_color(solar_value, solar_color, 0);
-    if (home_value) lv_obj_set_style_text_color(home_value, home_color, 0);
-    if (grid_value) lv_obj_set_style_text_color(grid_value, grid_color, 0);
-    if (solar_unit) lv_obj_set_style_text_color(solar_unit, solar_color, 0);
-    if (home_unit) lv_obj_set_style_text_color(home_unit, home_color, 0);
-    if (grid_unit) lv_obj_set_style_text_color(grid_unit, grid_color, 0);
+    // T2 breach detection (any category -> global alarm).
+    const bool solar_t2 = is_over_t2(config ? &config->energy_solar_colors : nullptr, solar_kw, true);
+    const bool home_t2 = is_over_t2(config ? &config->energy_home_colors : nullptr, home_kw, true);
+    const bool grid_t2 = is_over_t2(config ? &config->energy_grid_colors : nullptr, grid_kw, false);
+    const bool alarmWanted = solar_t2 || home_t2 || grid_t2;
 
-    // Apply colors to bar fills
-    if (solar_bar_fill) lv_obj_set_style_bg_color(solar_bar_fill, solar_color, 0);
-    if (home_bar_fill) lv_obj_set_style_bg_color(home_bar_fill, home_color, 0);
-    if (grid_bar_fill) lv_obj_set_style_bg_color(grid_bar_fill, grid_color, 0);
+    // Record which categories are responsible for the alarm.
+    // These drive per-category remapping during the background pulse.
+    alarmSolar = solar_t2;
+    alarmHome = home_t2;
+    alarmGrid = grid_t2;
+
+    if (alarmWanted) {
+        if (alarmState == AlarmState::Off || alarmState == AlarmState::Exiting) {
+            alarmState = AlarmState::Active;
+            alarmDir = 1;
+            if (alarmTimer) lv_timer_resume(alarmTimer);
+        }
+    } else {
+        if (alarmState == AlarmState::Active) {
+            alarmState = AlarmState::Exiting;
+            alarmDir = -1;
+            if (alarmTimer) lv_timer_resume(alarmTimer);
+        }
+    }
+
+    // Apply colors. If the alarm is active/exiting, the timer owns the visual styles
+    // (background pulse + contrast remap) so we only update cached intended colors.
+    if (alarmState == AlarmState::Off) {
+        applyNormalStyles();
+    } else {
+        applyAlarmStyles();
+    }
 
     // Arrow visibility/direction
     if (arrow1) {
-        lv_obj_set_style_text_color(arrow1, solar_color, 0);
+        // Color will be handled by applyNormalStyles/applyAlarmStyles.
         if (!isnan(solar_kw) && solar_kw >= 0.01f) {
             lv_obj_clear_flag(arrow1, LV_OBJ_FLAG_HIDDEN);
         } else {
@@ -299,7 +464,7 @@ void EnergyMonitorScreen::update() {
     }
 
     if (arrow2) {
-        lv_obj_set_style_text_color(arrow2, grid_color, 0);
+        // Color will be handled by applyNormalStyles/applyAlarmStyles.
         if (isnan(grid_kw)) {
             lv_obj_add_flag(arrow2, LV_OBJ_FLAG_HIDDEN);
         } else {

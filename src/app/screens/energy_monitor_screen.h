@@ -39,6 +39,35 @@ private:
     lv_obj_t* grid_bar_bg = nullptr;
     lv_obj_t* grid_bar_fill = nullptr;
 
+    // T2 Warning (v1): breathing background + contrast remapping.
+    enum class AlarmState : uint8_t {
+        Off = 0,
+        Active,
+        Exiting,
+    };
+
+    AlarmState alarmState = AlarmState::Off;
+    lv_timer_t* alarmTimer = nullptr;
+    uint8_t alarmPhase = 0;   // 0..255 (black -> red)
+    int8_t alarmDir = 1;      // +1 to ramp up, -1 to ramp down
+
+    // Which categories are currently responsible for the T2 alarm.
+    // Used to avoid animating/remapping non-alarm categories.
+    bool alarmSolar = false;
+    bool alarmHome = false;
+    bool alarmGrid = false;
+
+    // Cache the latest intended (non-alarm) colors so the timer can re-apply
+    // contrast-safe colors while the background is animating.
+    lv_color_t intendedSolarColor = lv_color_white();
+    lv_color_t intendedHomeColor = lv_color_white();
+    lv_color_t intendedGridColor = lv_color_white();
+
+    static void alarmTimerCb(lv_timer_t* t);
+    void alarmTick();
+    void applyNormalStyles();
+    void applyAlarmStyles();
+
 public:
     EnergyMonitorScreen(DeviceConfig* deviceConfig, DisplayManager* manager);
     ~EnergyMonitorScreen();
