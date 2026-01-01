@@ -43,12 +43,21 @@ public:
     const char *friendlyName() const { return _friendly_name; }
     const char *sanitizedName() const { return _sanitized_name; }
 
+    // PubSubClient callback entrypoint (called by a C-style trampoline).
+    void handleIncomingMessage(const char *topic, const uint8_t *payload, unsigned int length);
+
+    // Request a reconnect so updated config (host/credentials/topics) takes effect.
+    // Safe to call from the main loop.
+    void requestReconnect();
+
 private:
     void ensureConnected();
     void publishAvailability(bool online);
     void publishDiscoveryOncePerBoot();
     void publishHealthNow();
     void publishHealthIfDue();
+
+    void subscribeEnergyMonitorTopics();
 
     bool connectEnabled() const;
     uint16_t resolvedPort() const;
@@ -68,7 +77,13 @@ private:
 
     unsigned long _last_reconnect_attempt_ms = 0;
     unsigned long _last_health_publish_ms = 0;
+
+    bool _energy_subscriptions_active = false;
 };
+
+// Global helper: request reconnect on the active MqttManager instance (if any).
+// Safe to call from the main loop.
+void mqtt_manager_request_reconnect();
 
 #endif // HAS_MQTT
 

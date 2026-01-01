@@ -24,7 +24,7 @@ DisplayManager* displayManager = nullptr;
 
 DisplayManager::DisplayManager(DeviceConfig* cfg) 
     : driver(nullptr), config(cfg), currentScreen(nullptr), previousScreen(nullptr), pendingScreen(nullptr), 
-      infoScreen(cfg, this), testScreen(this),
+            infoScreen(cfg, this), energyMonitorScreen(cfg, this), testScreen(this),
       #if HAS_IMAGE_API
       directImageScreen(this),
       #endif
@@ -46,20 +46,21 @@ DisplayManager::DisplayManager(DeviceConfig* cfg)
     lvglMutex = xSemaphoreCreateMutex();
     
     // Initialize screen registry (exclude splash - it's boot-specific)
-    availableScreens[0] = {"info", "Info Screen", &infoScreen};
-    availableScreens[1] = {"test", "Test Screen", &testScreen};
+    availableScreens[0] = {"energy", "Energy Monitor", &energyMonitorScreen};
+    availableScreens[1] = {"info", "Info Screen", &infoScreen};
+    availableScreens[2] = {"test", "Test Screen", &testScreen};
     #if HAS_IMAGE_API
     // Optional LVGL image screen (JPEG -> RGB565 -> lv_img).
     // Included under HAS_IMAGE_API for simplicity. To reduce firmware size,
     // disable LVGL image support via LV_USE_IMG=0 / LV_USE_IMG_TRANSFORM=0 in src/app/lv_conf.h.
     #if LV_USE_IMG
-    availableScreens[2] = {"lvgl_image", "LVGL Image", &lvglImageScreen};
-    screenCount = 3;
+    availableScreens[3] = {"lvgl_image", "LVGL Image", &lvglImageScreen};
+    screenCount = 4;
     #else
-    screenCount = 2;
+    screenCount = 3;
     #endif
     #else
-    screenCount = 2;
+    screenCount = 3;
     #endif
     
     #if HAS_IMAGE_API
@@ -81,6 +82,7 @@ DisplayManager::~DisplayManager() {
     
     splashScreen.destroy();
     infoScreen.destroy();
+    energyMonitorScreen.destroy();
     testScreen.destroy();
     
     #if HAS_IMAGE_API
@@ -366,6 +368,7 @@ void DisplayManager::init() {
     
     // Create all screens
     splashScreen.create();
+    energyMonitorScreen.create();
     infoScreen.create();
     testScreen.create();
     #if HAS_IMAGE_API
@@ -505,6 +508,12 @@ void display_manager_init(DeviceConfig* config) {
 void display_manager_show_splash() {
     if (displayManager) {
         displayManager->showSplash();
+    }
+}
+
+void display_manager_show_energy_monitor() {
+    if (displayManager) {
+        displayManager->showScreen("energy");
     }
 }
 

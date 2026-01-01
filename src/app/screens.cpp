@@ -15,6 +15,7 @@
 // Include all screen implementations
 #include "screens/splash_screen.cpp"
 #include "screens/info_screen.cpp"
+#include "screens/energy_monitor_screen.cpp"
 #include "screens/test_screen.cpp"
 
 #if HAS_IMAGE_API
