@@ -16,11 +16,11 @@ This document describes the build system configuration and automated release wor
 
 ### Overview
 
-The project uses a centralized branding system defined in `config.sh`. These values control your project's identity across builds, releases, web UI, and device names.
+The project uses a centralized branding system defined in `config.sh` (with an optional `config.project.sh` overlay). These values control your project's identity across builds, releases, web UI, and device names.
 
 ### Configuration Variables
 
-Located at the top of `config.sh`:
+Defaults are located at the top of `config.sh` (and can be overridden in `config.project.sh`):
 
 ```bash
 PROJECT_NAME="esp32-template"       # Slug format (no spaces)
@@ -54,7 +54,11 @@ Used for user-facing text and branding:
 
 ### Customizing for Your Project
 
-1. **Edit `config.sh`** at the top of the file:
+1. **Set branding values**:
+
+  - For standalone use: edit `config.sh` at the top of the file.
+  - For template-based projects (recommended): copy `config.project.sh.example` to `config.project.sh` and put your project-specific overrides there.
+
    ```bash
    PROJECT_NAME="my-iot-device"
    PROJECT_DISPLAY_NAME="My IoT Device"
@@ -82,11 +86,13 @@ Used for user-facing text and branding:
 
 The build system automatically applies project branding during compilation:
 
-1. `build.sh` sources `config.sh` to get `PROJECT_NAME` and `PROJECT_DISPLAY_NAME`
+1. `build.sh` sources `config.sh` to get `PROJECT_NAME` and `PROJECT_DISPLAY_NAME` (and `config.sh` will also source `config.project.sh` if present)
 2. (Optional) If `assets/png/*.png` exists and you are building a display-enabled board, `build.sh` generates LVGL image assets into `src/app/png_assets.cpp` and `src/app/png_assets.h`
 3. `tools/minify-web-assets.sh` performs template substitution in HTML files
 4. Branding C++ `#define` statements are generated in `src/app/project_branding.h` (and `web_assets.h` includes it)
-5. Firmware compiles with branded values embedded
+5. If the repo was built from a GitHub checkout with a detectable `remote.origin.url`, the repo slug is generated into `src/app/repo_slug_config.h` (used to construct GitHub Pages links)
+6. `build.sh` also embeds the board name as a compile-time string define (`BUILD_BOARD_NAME`) so the portal can report the active board
+7. Firmware compiles with branded values embedded
 
 ### Board-Specific Configuration
 
@@ -271,6 +277,7 @@ This template automates the installation:
 ### Important Operational Notes
 
 - The **first flash after changing a partition table should be done over serial** (USB). OTA updates will work normally afterwards.
+- For boards using `PartitionScheme=...`, `upload.sh` defaults to a full flash (`--full`) to ensure the partition layout on the device matches what was built.
 - If you see errors like “offset not aligned” or “sketch too big”, verify your offsets are 0x10000-aligned (except NVS/otadata) and that your firmware fits in the configured app partition size.
 
 **Notes:**
@@ -320,10 +327,47 @@ The project uses an automated release workflow that triggers on version tags. Re
 
 - **`config.sh`** - Project branding configuration
 - **`.github/workflows/release.yml`** - Automated release pipeline triggered by version tags
+- **`.github/workflows/pages-from-release.yml`** - Deploys the GitHub Pages firmware installer for stable releases
 - **`tools/extract-changelog.sh`** - Parses CHANGELOG.md for version-specific notes
 - **`create-release.sh`** - Helper script to automate release preparation
+- **`tools/build-esp-web-tools-site.sh`** - Builds the static installer site (HTML + manifests + firmware copies)
 - **`src/version.h`** - Firmware version tracking
 - **`CHANGELOG.md`** - Release notes in Keep a Changelog format
+
+---
+
+## Web Firmware Installer (GitHub Pages / ESP Web Tools)
+
+This repository includes a static firmware installer site (no backend) powered by ESP Web Tools. It is deployed to GitHub Pages from **stable GitHub Releases**.
+
+### Why multi-part flashing is required
+
+For custom partition layouts, flashing a single “merged.bin at offset 0” can overwrite areas like NVS (and can fail to boot if `app0` is not at the default offset).
+
+This template’s browser installer uses **multi-part flashing**:
+
+- bootloader @ `0x0`
+- partition table @ `0x8000`
+- `boot_app0` @ `0xE000`
+- app @ the `app0` offset derived from `app.ino.partitions.bin`
+
+### Same-origin requirement (CORS)
+
+To avoid CORS issues in browsers, the **installer page**, **manifest JSON**, and **firmware `.bin` files** must be served from the same GitHub Pages origin.
+
+### How Pages deployment works
+
+- **Trigger**: `.github/workflows/pages-from-release.yml` runs on `release.published` and refuses pre-releases.
+- **Manual deploy**: The same workflow supports `workflow_dispatch` with a `tag_name` input (still refuses pre-releases).
+- **Inputs**:
+  - Downloads app + multi-part assets from the release.
+  - Fetches the release body into `release-notes.md`.
+  - Rehydrates `build/<board>/` with:
+    - `app.ino.bin`
+    - `app.ino.bootloader.bin`
+    - `app.ino.partitions.bin`
+    - `boot_app0.bin`
+- **Output**: `tools/build-esp-web-tools-site.sh` generates `site/` (HTML, `manifests/*.json`, `firmware/<board>/*.bin`) which is deployed via GitHub Pages “Source: GitHub Actions”.
 
 ---
 
@@ -373,16 +417,21 @@ git push origin v0.0.5
 - GitHub Actions builds firmware for all boards (e.g., esp32-nodisplay, esp32c3-waveshare-169-st7789v2, cyd-v2)
 - Extracts changelog section for v0.0.5
 - Creates GitHub Release with:
-  - `esp32-nodisplay-firmware-v0.0.5.bin`
-  - `esp32c3-waveshare-169-st7789v2-firmware-v0.0.5.bin`
-  - `esp32c6-firmware-v0.0.5.bin`
+  - `esp32-template-esp32-nodisplay-v0.0.5.bin` (app-only)
+  - `esp32-template-esp32-nodisplay-v0.0.5-bootloader.bin`
+  - `esp32-template-esp32-nodisplay-v0.0.5-partitions.bin`
+  - `esp32-template-esp32-nodisplay-v0.0.5-boot_app0.bin`
+  - `esp32-template-esp32-nodisplay-v0.0.5-merged.bin` (legacy; may overwrite NVS)
   - `SHA256SUMS.txt`
-- Release notes populated from CHANGELOG.md
+- Release notes populated from CHANGELOG.md (no auto-generated “What’s Changed” section)
 - Debug symbols (`.elf`) and build metadata available in workflow artifacts
+
+**Additional automation for stable releases**:
+- After the GitHub Release is published (and is not a prerelease), `.github/workflows/pages-from-release.yml` deploys the GitHub Pages firmware installer.
 
 ### Step 4: Verify
 
-Check the release page: `https://github.com/jantielens/esp32-template/releases/tag/v0.0.5`
+Check the release page: `https://github.com/<owner>/<repo>/releases/tag/v0.0.5`
 
 Verify:
 - ✅ Release notes match CHANGELOG
@@ -505,7 +554,7 @@ git push origin v1.0.0
 git tag -a v0.0.0-test.1 -m "Testing release workflow"
 git push origin v0.0.0-test.1
 
-# Watch GitHub Actions: https://github.com/jantielens/esp32-template/actions
+# Watch GitHub Actions: https://github.com/<owner>/<repo>/actions
 
 # If successful, delete test release and tag
 # Via GitHub UI: Delete the release
@@ -559,7 +608,7 @@ git pull
 
 ```bash
 # Option 1: Delete the release (GitHub UI or API)
-# Go to: https://github.com/jantielens/esp32-template/releases
+# Go to: https://github.com/<owner>/<repo>/releases
 # Edit release → Delete release
 
 # Option 2: Mark release as "Pre-release" to hide from latest
@@ -578,7 +627,12 @@ git pull
 ### What's in GitHub Releases (Public)
 
 Each release includes:
-- **Firmware binaries**: `<board>-firmware-vX.Y.Z.bin` for each board variant
+- **Firmware binaries** (app-only): `$PROJECT_NAME-<board>-vX.Y.Z.bin` for each board variant
+- **Firmware binaries** (multi-part; browser installer):
+  - `$PROJECT_NAME-<board>-vX.Y.Z-bootloader.bin`
+  - `$PROJECT_NAME-<board>-vX.Y.Z-partitions.bin`
+  - `$PROJECT_NAME-<board>-vX.Y.Z-boot_app0.bin`
+- **Firmware binaries** (legacy merged; may overwrite NVS): `$PROJECT_NAME-<board>-vX.Y.Z-merged.bin`
 - **Checksums**: `SHA256SUMS.txt` for verification
 - **Release notes**: Extracted from CHANGELOG.md
 
@@ -641,7 +695,7 @@ Follow [Semantic Versioning](https://semver.org/):
 
 ### Release Workflow Fails
 
-1. Check GitHub Actions logs: `https://github.com/jantielens/esp32-template/actions`
+1. Check GitHub Actions logs: `https://github.com/<owner>/<repo>/actions`
 2. Common issues:
    - **Compilation error**: Fix code and push new tag
    - **Changelog parsing error**: Verify CHANGELOG.md format
@@ -687,6 +741,19 @@ Follow [Semantic Versioning](https://semver.org/):
    git push origin v0.0.6
    ```
 
+### Release Published but Pages Installer Didn't Deploy
+
+**Symptoms**: The GitHub Release exists, but the GitHub Pages installer site did not update.
+
+**Checklist**:
+1. Confirm the release is **stable** (not marked as prerelease). The Pages workflow refuses prereleases.
+2. Check `.github/workflows/pages-from-release.yml` ran (Actions → workflow runs).
+3. Ensure the release was created using a token that can emit downstream events:
+  - The release workflow prefers `PAT_TOKEN` when creating the GitHub Release.
+  - If the release was created with `GITHUB_TOKEN` only, `release.published` may not reliably trigger downstream workflows.
+
+**Fix**: Configure `PAT_TOKEN` and re-publish the release (or recreate the release) so `release.published` triggers the Pages deploy.
+
 ---
 
 ## CI/CD Pipeline Summary
@@ -717,6 +784,20 @@ Follow [Semantic Versioning](https://semver.org/):
 4. Create GitHub Release
 5. Upload firmware binaries
 6. Generate checksums
+
+### Pages Installer Deploy Workflow (`.github/workflows/pages-from-release.yml`)
+
+**Triggers**:
+- On stable release publish (`release.published` where `prerelease == false`)
+- Manual trigger with `workflow_dispatch` (requires a stable `tag_name`)
+
+**Purpose**: Deploy a static ESP Web Tools installer to GitHub Pages without rebuilding firmware.
+
+**Process**:
+1. Download app + multi-part assets from the release
+2. Rehydrate `build/<board>/` with app/bootloader/partitions/boot_app0 binaries
+3. Run `tools/build-esp-web-tools-site.sh` to produce `site/`
+4. Deploy `site/` to GitHub Pages via GitHub Actions artifacts
 
 ### PR Commands Workflow (`.github/workflows/pr-commands.yml`)
 

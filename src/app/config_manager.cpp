@@ -30,39 +30,12 @@
 #define KEY_MQTT_USER      "mqtt_user"
 #define KEY_MQTT_PASS      "mqtt_pass"
 #define KEY_MQTT_INTERVAL  "mqtt_int"
-#define KEY_MQTT_SOLAR_TOPIC "mqtt_sol_t"
-#define KEY_MQTT_GRID_TOPIC  "mqtt_grd_t"
-#define KEY_MQTT_SOLAR_PATH  "mqtt_sol_p"
-#define KEY_MQTT_GRID_PATH   "mqtt_grd_p"
-#define KEY_ENERGY_SOLAR_BAR_MAX_KW "en_sol_m"
-#define KEY_ENERGY_HOME_BAR_MAX_KW  "en_hom_m"
-#define KEY_ENERGY_GRID_BAR_MAX_KW  "en_grd_m"
-
-// Energy monitor colors/thresholds (per category)
-#define KEY_EN_SOL_CG "es_cg"
-#define KEY_EN_SOL_CO "es_co"
-#define KEY_EN_SOL_CA "es_ca"
-#define KEY_EN_SOL_CW "es_cw"
-#define KEY_EN_SOL_T0 "es_t0"
-#define KEY_EN_SOL_T1 "es_t1"
-#define KEY_EN_SOL_T2 "es_t2"
-
-#define KEY_EN_HOM_CG "eh_cg"
-#define KEY_EN_HOM_CO "eh_co"
-#define KEY_EN_HOM_CA "eh_ca"
-#define KEY_EN_HOM_CW "eh_cw"
-#define KEY_EN_HOM_T0 "eh_t0"
-#define KEY_EN_HOM_T1 "eh_t1"
-#define KEY_EN_HOM_T2 "eh_t2"
-
-#define KEY_EN_GRD_CG "eg_cg"
-#define KEY_EN_GRD_CO "eg_co"
-#define KEY_EN_GRD_CA "eg_ca"
-#define KEY_EN_GRD_CW "eg_cw"
-#define KEY_EN_GRD_T0 "eg_t0"
-#define KEY_EN_GRD_T1 "eg_t1"
-#define KEY_EN_GRD_T2 "eg_t2"
 #define KEY_BACKLIGHT_BRIGHTNESS "bl_bright"
+
+// Web portal Basic Auth
+#define KEY_BASIC_AUTH_ENABLED "ba_en"
+#define KEY_BASIC_AUTH_USER    "ba_user"
+#define KEY_BASIC_AUTH_PASS    "ba_pass"
 #if HAS_DISPLAY
 #define KEY_SCREEN_SAVER_ENABLED "ss_en"
 #define KEY_SCREEN_SAVER_TIMEOUT "ss_to"
@@ -74,46 +47,22 @@
 
 static Preferences preferences;
 
-static void set_energy_defaults(EnergyCategoryColorConfig* cfg) {
-    if (!cfg) return;
-    cfg->color_good_rgb = 0x00FF00;      // green
-    cfg->color_ok_rgb = 0xFFFFFF;        // white
-    cfg->color_attention_rgb = 0xFFA500; // orange
-    cfg->color_warning_rgb = 0xFF0000;   // red
-    cfg->threshold_mkw[0] = 500;   // 0.5 kW
-    cfg->threshold_mkw[1] = 1500;  // 1.5 kW
-    cfg->threshold_mkw[2] = 3000;  // 3.0 kW
-}
-
-static void normalize_energy_thresholds(EnergyCategoryColorConfig* cfg) {
-    if (!cfg) return;
-    if (cfg->threshold_mkw[0] < 0) cfg->threshold_mkw[0] = 0;
-    if (cfg->threshold_mkw[1] < 0) cfg->threshold_mkw[1] = 0;
-    if (cfg->threshold_mkw[2] < 0) cfg->threshold_mkw[2] = 0;
-
-    // Require monotonic order; if invalid, reset to defaults.
-    if (cfg->threshold_mkw[0] > cfg->threshold_mkw[1] || cfg->threshold_mkw[1] > cfg->threshold_mkw[2]) {
-        set_energy_defaults(cfg);
-    }
-}
-
 // Initialize NVS
 void config_manager_init() {
-    Logger.logBegin("Config NVS Init");
+    LOGI("Config", "NVS init start");
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        Logger.logLinef("NVS init error (%d) - erasing NVS", (int)err);
+        LOGW("Config", "NVS init error (%d) - erasing NVS", (int)err);
         nvs_flash_erase();
         err = nvs_flash_init();
     }
 
     if (err != ESP_OK) {
-        Logger.logLinef("NVS init FAILED (%d)", (int)err);
-        Logger.logEnd("FAILED");
+        LOGE("Config", "NVS init FAILED (%d)", (int)err);
         return;
     }
 
-    Logger.logEnd("OK");
+    LOGI("Config", "NVS init OK");
 }
 
 // Get default device name with unique chip ID
@@ -162,14 +111,14 @@ void config_manager_sanitize_device_name(const char *input, char *output, size_t
 // Load configuration from NVS
 bool config_manager_load(DeviceConfig *config) {
     if (!config) {
-        Logger.logMessage("Config", "Load failed: NULL pointer");
+        LOGE("Config", "Load failed: NULL pointer");
         return false;
     }
-    
-    Logger.logBegin("Config Load");
+
+    LOGI("Config", "Load start");
 
     if (!preferences.begin(CONFIG_NAMESPACE, true)) { // Read-only mode
-        Logger.logEnd("Preferences begin failed");
+        LOGE("Config", "Preferences begin failed");
         return false;
     }
     
@@ -177,28 +126,17 @@ bool config_manager_load(DeviceConfig *config) {
     uint32_t magic = preferences.getUInt(KEY_MAGIC, 0);
     if (magic != CONFIG_MAGIC) {
         preferences.end();
-        Logger.logEnd("No config found");
+        LOGW("Config", "No config found");
         
         // Initialize defaults for fields that need sensible values even when no config exists
         config->backlight_brightness = 100;  // Default to full brightness
         config->mqtt_port = 0;
         config->mqtt_interval_seconds = 0;
 
-        config->mqtt_topic_solar[0] = '\0';
-        config->mqtt_topic_grid[0] = '\0';
-
-        strlcpy(config->mqtt_solar_value_path, ".", CONFIG_MQTT_VALUE_PATH_MAX_LEN);
-        strlcpy(config->mqtt_grid_value_path, ".", CONFIG_MQTT_VALUE_PATH_MAX_LEN);
-
-        // Energy monitor UI defaults (kW)
-        config->energy_solar_bar_max_kw = 3.0f;
-        config->energy_home_bar_max_kw = 3.0f;
-        config->energy_grid_bar_max_kw = 3.0f;
-
-        // Energy monitor colors/thresholds defaults
-        set_energy_defaults(&config->energy_solar_colors);
-        set_energy_defaults(&config->energy_home_colors);
-        set_energy_defaults(&config->energy_grid_colors);
+        // Basic Auth defaults
+        config->basic_auth_enabled = false;
+        config->basic_auth_username[0] = '\0';
+        config->basic_auth_password[0] = '\0';
 
         #if HAS_DISPLAY
         // Screen saver defaults
@@ -243,66 +181,15 @@ bool config_manager_load(DeviceConfig *config) {
     preferences.getString(KEY_MQTT_USER, config->mqtt_username, CONFIG_MQTT_USERNAME_MAX_LEN);
     preferences.getString(KEY_MQTT_PASS, config->mqtt_password, CONFIG_MQTT_PASSWORD_MAX_LEN);
     config->mqtt_interval_seconds = preferences.getUShort(KEY_MQTT_INTERVAL, 0);
-
-    // Load Energy Monitor MQTT settings (all optional)
-    preferences.getString(KEY_MQTT_SOLAR_TOPIC, config->mqtt_topic_solar, CONFIG_MQTT_TOPIC_MAX_LEN);
-    preferences.getString(KEY_MQTT_GRID_TOPIC, config->mqtt_topic_grid, CONFIG_MQTT_TOPIC_MAX_LEN);
-    preferences.getString(KEY_MQTT_SOLAR_PATH, config->mqtt_solar_value_path, CONFIG_MQTT_VALUE_PATH_MAX_LEN);
-    preferences.getString(KEY_MQTT_GRID_PATH, config->mqtt_grid_value_path, CONFIG_MQTT_VALUE_PATH_MAX_LEN);
-
-    // Normalize empty paths to "." (direct numeric payloads)
-    if (strlen(config->mqtt_solar_value_path) == 0) {
-        strlcpy(config->mqtt_solar_value_path, ".", CONFIG_MQTT_VALUE_PATH_MAX_LEN);
-    }
-    if (strlen(config->mqtt_grid_value_path) == 0) {
-        strlcpy(config->mqtt_grid_value_path, ".", CONFIG_MQTT_VALUE_PATH_MAX_LEN);
-    }
-
-    // Load Energy Monitor UI scaling (kW)
-    config->energy_solar_bar_max_kw = preferences.getFloat(KEY_ENERGY_SOLAR_BAR_MAX_KW, 3.0f);
-    config->energy_home_bar_max_kw = preferences.getFloat(KEY_ENERGY_HOME_BAR_MAX_KW, 3.0f);
-    config->energy_grid_bar_max_kw = preferences.getFloat(KEY_ENERGY_GRID_BAR_MAX_KW, 3.0f);
-
-    // Clamp to sane minimums (avoid divide-by-zero)
-    if (!(config->energy_solar_bar_max_kw > 0.0f)) config->energy_solar_bar_max_kw = 3.0f;
-    if (!(config->energy_home_bar_max_kw > 0.0f)) config->energy_home_bar_max_kw = 3.0f;
-    if (!(config->energy_grid_bar_max_kw > 0.0f)) config->energy_grid_bar_max_kw = 3.0f;
-
-    // Load Energy Monitor colors/thresholds
-    set_energy_defaults(&config->energy_solar_colors);
-    set_energy_defaults(&config->energy_home_colors);
-    set_energy_defaults(&config->energy_grid_colors);
-
-    config->energy_solar_colors.color_good_rgb = preferences.getUInt(KEY_EN_SOL_CG, config->energy_solar_colors.color_good_rgb) & 0xFFFFFF;
-    config->energy_solar_colors.color_ok_rgb = preferences.getUInt(KEY_EN_SOL_CO, config->energy_solar_colors.color_ok_rgb) & 0xFFFFFF;
-    config->energy_solar_colors.color_attention_rgb = preferences.getUInt(KEY_EN_SOL_CA, config->energy_solar_colors.color_attention_rgb) & 0xFFFFFF;
-    config->energy_solar_colors.color_warning_rgb = preferences.getUInt(KEY_EN_SOL_CW, config->energy_solar_colors.color_warning_rgb) & 0xFFFFFF;
-    config->energy_solar_colors.threshold_mkw[0] = preferences.getInt(KEY_EN_SOL_T0, config->energy_solar_colors.threshold_mkw[0]);
-    config->energy_solar_colors.threshold_mkw[1] = preferences.getInt(KEY_EN_SOL_T1, config->energy_solar_colors.threshold_mkw[1]);
-    config->energy_solar_colors.threshold_mkw[2] = preferences.getInt(KEY_EN_SOL_T2, config->energy_solar_colors.threshold_mkw[2]);
-    normalize_energy_thresholds(&config->energy_solar_colors);
-
-    config->energy_home_colors.color_good_rgb = preferences.getUInt(KEY_EN_HOM_CG, config->energy_home_colors.color_good_rgb) & 0xFFFFFF;
-    config->energy_home_colors.color_ok_rgb = preferences.getUInt(KEY_EN_HOM_CO, config->energy_home_colors.color_ok_rgb) & 0xFFFFFF;
-    config->energy_home_colors.color_attention_rgb = preferences.getUInt(KEY_EN_HOM_CA, config->energy_home_colors.color_attention_rgb) & 0xFFFFFF;
-    config->energy_home_colors.color_warning_rgb = preferences.getUInt(KEY_EN_HOM_CW, config->energy_home_colors.color_warning_rgb) & 0xFFFFFF;
-    config->energy_home_colors.threshold_mkw[0] = preferences.getInt(KEY_EN_HOM_T0, config->energy_home_colors.threshold_mkw[0]);
-    config->energy_home_colors.threshold_mkw[1] = preferences.getInt(KEY_EN_HOM_T1, config->energy_home_colors.threshold_mkw[1]);
-    config->energy_home_colors.threshold_mkw[2] = preferences.getInt(KEY_EN_HOM_T2, config->energy_home_colors.threshold_mkw[2]);
-    normalize_energy_thresholds(&config->energy_home_colors);
-
-    config->energy_grid_colors.color_good_rgb = preferences.getUInt(KEY_EN_GRD_CG, config->energy_grid_colors.color_good_rgb) & 0xFFFFFF;
-    config->energy_grid_colors.color_ok_rgb = preferences.getUInt(KEY_EN_GRD_CO, config->energy_grid_colors.color_ok_rgb) & 0xFFFFFF;
-    config->energy_grid_colors.color_attention_rgb = preferences.getUInt(KEY_EN_GRD_CA, config->energy_grid_colors.color_attention_rgb) & 0xFFFFFF;
-    config->energy_grid_colors.color_warning_rgb = preferences.getUInt(KEY_EN_GRD_CW, config->energy_grid_colors.color_warning_rgb) & 0xFFFFFF;
-    config->energy_grid_colors.threshold_mkw[0] = preferences.getInt(KEY_EN_GRD_T0, config->energy_grid_colors.threshold_mkw[0]);
-    config->energy_grid_colors.threshold_mkw[1] = preferences.getInt(KEY_EN_GRD_T1, config->energy_grid_colors.threshold_mkw[1]);
-    config->energy_grid_colors.threshold_mkw[2] = preferences.getInt(KEY_EN_GRD_T2, config->energy_grid_colors.threshold_mkw[2]);
-    normalize_energy_thresholds(&config->energy_grid_colors);
     
     // Load display settings
     config->backlight_brightness = preferences.getUChar(KEY_BACKLIGHT_BRIGHTNESS, 100);
-    Logger.logLinef("Loaded brightness: %d%%", config->backlight_brightness);
+    LOGI("Config", "Loaded brightness: %d%%", config->backlight_brightness);
+
+    // Load Basic Auth settings
+    config->basic_auth_enabled = preferences.getBool(KEY_BASIC_AUTH_ENABLED, false);
+    preferences.getString(KEY_BASIC_AUTH_USER, config->basic_auth_username, CONFIG_BASIC_AUTH_USERNAME_MAX_LEN);
+    preferences.getString(KEY_BASIC_AUTH_PASS, config->basic_auth_password, CONFIG_BASIC_AUTH_PASSWORD_MAX_LEN);
 
     #if HAS_DISPLAY
     // Load screen saver settings
@@ -323,28 +210,28 @@ bool config_manager_load(DeviceConfig *config) {
     
     // Validate loaded config
     if (!config_manager_is_valid(config)) {
-        Logger.logEnd("Invalid config");
+        LOGE("Config", "Invalid config");
         return false;
     }
     
     config_manager_print(config);
-    Logger.logEnd();
+    LOGI("Config", "Load complete");
     return true;
 }
 
 // Save configuration to NVS
 bool config_manager_save(const DeviceConfig *config) {
     if (!config) {
-        Logger.logMessage("Config", "Save failed: NULL pointer");
+        LOGE("Config", "Save failed: NULL pointer");
         return false;
     }
     
     if (!config_manager_is_valid(config)) {
-        Logger.logMessage("Config", "Save failed: Invalid config");
+        LOGE("Config", "Save failed: Invalid config");
         return false;
     }
-    
-    Logger.logBegin("Config Save");
+
+    LOGI("Config", "Save start");
     
     preferences.begin(CONFIG_NAMESPACE, false); // Read-write mode
     
@@ -371,52 +258,15 @@ bool config_manager_save(const DeviceConfig *config) {
     preferences.putString(KEY_MQTT_USER, config->mqtt_username);
     preferences.putString(KEY_MQTT_PASS, config->mqtt_password);
     preferences.putUShort(KEY_MQTT_INTERVAL, config->mqtt_interval_seconds);
-
-    // Save Energy Monitor MQTT settings
-    preferences.putString(KEY_MQTT_SOLAR_TOPIC, config->mqtt_topic_solar);
-    preferences.putString(KEY_MQTT_GRID_TOPIC, config->mqtt_topic_grid);
-
-    const char *solar_path = (strlen(config->mqtt_solar_value_path) == 0) ? "." : config->mqtt_solar_value_path;
-    const char *grid_path = (strlen(config->mqtt_grid_value_path) == 0) ? "." : config->mqtt_grid_value_path;
-    preferences.putString(KEY_MQTT_SOLAR_PATH, solar_path);
-    preferences.putString(KEY_MQTT_GRID_PATH, grid_path);
-
-    // Save Energy Monitor UI scaling (kW)
-    float solar_max = config->energy_solar_bar_max_kw > 0.0f ? config->energy_solar_bar_max_kw : 3.0f;
-    float home_max = config->energy_home_bar_max_kw > 0.0f ? config->energy_home_bar_max_kw : 3.0f;
-    float grid_max = config->energy_grid_bar_max_kw > 0.0f ? config->energy_grid_bar_max_kw : 3.0f;
-    preferences.putFloat(KEY_ENERGY_SOLAR_BAR_MAX_KW, solar_max);
-    preferences.putFloat(KEY_ENERGY_HOME_BAR_MAX_KW, home_max);
-    preferences.putFloat(KEY_ENERGY_GRID_BAR_MAX_KW, grid_max);
-
-    // Save Energy Monitor colors/thresholds
-    preferences.putUInt(KEY_EN_SOL_CG, config->energy_solar_colors.color_good_rgb & 0xFFFFFF);
-    preferences.putUInt(KEY_EN_SOL_CO, config->energy_solar_colors.color_ok_rgb & 0xFFFFFF);
-    preferences.putUInt(KEY_EN_SOL_CA, config->energy_solar_colors.color_attention_rgb & 0xFFFFFF);
-    preferences.putUInt(KEY_EN_SOL_CW, config->energy_solar_colors.color_warning_rgb & 0xFFFFFF);
-    preferences.putInt(KEY_EN_SOL_T0, config->energy_solar_colors.threshold_mkw[0]);
-    preferences.putInt(KEY_EN_SOL_T1, config->energy_solar_colors.threshold_mkw[1]);
-    preferences.putInt(KEY_EN_SOL_T2, config->energy_solar_colors.threshold_mkw[2]);
-
-    preferences.putUInt(KEY_EN_HOM_CG, config->energy_home_colors.color_good_rgb & 0xFFFFFF);
-    preferences.putUInt(KEY_EN_HOM_CO, config->energy_home_colors.color_ok_rgb & 0xFFFFFF);
-    preferences.putUInt(KEY_EN_HOM_CA, config->energy_home_colors.color_attention_rgb & 0xFFFFFF);
-    preferences.putUInt(KEY_EN_HOM_CW, config->energy_home_colors.color_warning_rgb & 0xFFFFFF);
-    preferences.putInt(KEY_EN_HOM_T0, config->energy_home_colors.threshold_mkw[0]);
-    preferences.putInt(KEY_EN_HOM_T1, config->energy_home_colors.threshold_mkw[1]);
-    preferences.putInt(KEY_EN_HOM_T2, config->energy_home_colors.threshold_mkw[2]);
-
-    preferences.putUInt(KEY_EN_GRD_CG, config->energy_grid_colors.color_good_rgb & 0xFFFFFF);
-    preferences.putUInt(KEY_EN_GRD_CO, config->energy_grid_colors.color_ok_rgb & 0xFFFFFF);
-    preferences.putUInt(KEY_EN_GRD_CA, config->energy_grid_colors.color_attention_rgb & 0xFFFFFF);
-    preferences.putUInt(KEY_EN_GRD_CW, config->energy_grid_colors.color_warning_rgb & 0xFFFFFF);
-    preferences.putInt(KEY_EN_GRD_T0, config->energy_grid_colors.threshold_mkw[0]);
-    preferences.putInt(KEY_EN_GRD_T1, config->energy_grid_colors.threshold_mkw[1]);
-    preferences.putInt(KEY_EN_GRD_T2, config->energy_grid_colors.threshold_mkw[2]);
     
     // Save display settings
-    Logger.logLinef("Saving brightness: %d%%", config->backlight_brightness);
+    LOGI("Config", "Saving brightness: %d%%", config->backlight_brightness);
     preferences.putUChar(KEY_BACKLIGHT_BRIGHTNESS, config->backlight_brightness);
+
+    // Save Basic Auth settings
+    preferences.putBool(KEY_BASIC_AUTH_ENABLED, config->basic_auth_enabled);
+    preferences.putString(KEY_BASIC_AUTH_USER, config->basic_auth_username);
+    preferences.putString(KEY_BASIC_AUTH_PASS, config->basic_auth_password);
 
     #if HAS_DISPLAY
     // Save screen saver settings
@@ -433,22 +283,22 @@ bool config_manager_save(const DeviceConfig *config) {
     preferences.end();
     
     config_manager_print(config);
-    Logger.logEnd();
+    LOGI("Config", "Save complete");
     return true;
 }
 
 // Reset configuration (erase from NVS)
 bool config_manager_reset() {
-    Logger.logBegin("Config Reset");
+    LOGI("Config", "Reset start");
     
     preferences.begin(CONFIG_NAMESPACE, false);
     bool success = preferences.clear();
     preferences.end();
     
     if (success) {
-        Logger.logEnd();
+        LOGI("Config", "Reset complete");
     } else {
-        Logger.logEnd("Failed to reset");
+        LOGE("Config", "Failed to reset");
     }
     
     return success;
@@ -460,6 +310,11 @@ bool config_manager_is_valid(const DeviceConfig *config) {
     if (config->magic != CONFIG_MAGIC) return false;
     if (strlen(config->wifi_ssid) == 0) return false;
     if (strlen(config->device_name) == 0) return false;
+
+    if (config->basic_auth_enabled) {
+        if (strlen(config->basic_auth_username) == 0) return false;
+        if (strlen(config->basic_auth_password) == 0) return false;
+    }
     return true;
 }
 
@@ -467,40 +322,40 @@ bool config_manager_is_valid(const DeviceConfig *config) {
 void config_manager_print(const DeviceConfig *config) {
     if (!config) return;
     
-    Logger.logLinef("Device: %s", config->device_name);
+    LOGI("Config", "Device: %s", config->device_name);
     
     // Show sanitized name for mDNS
     char sanitized[CONFIG_DEVICE_NAME_MAX_LEN];
     config_manager_sanitize_device_name(config->device_name, sanitized, CONFIG_DEVICE_NAME_MAX_LEN);
-    Logger.logLinef("mDNS: %s.local", sanitized);
+    LOGI("Config", "mDNS: %s.local", sanitized);
     
-    Logger.logLinef("WiFi SSID: %s", config->wifi_ssid);
-    Logger.logLinef("WiFi Pass: %s", strlen(config->wifi_password) > 0 ? "***" : "(none)");
+    LOGI("Config", "WiFi SSID: %s", config->wifi_ssid);
+    LOGI("Config", "WiFi Pass: %s", strlen(config->wifi_password) > 0 ? "***" : "(none)");
     
     if (strlen(config->fixed_ip) > 0) {
-        Logger.logLinef("IP: %s", config->fixed_ip);
-        Logger.logLinef("Subnet: %s", config->subnet_mask);
-        Logger.logLinef("Gateway: %s", config->gateway);
-        Logger.logLinef("DNS: %s, %s", config->dns1, strlen(config->dns2) > 0 ? config->dns2 : "(none)");
+        LOGI("Config", "IP: %s", config->fixed_ip);
+        LOGI("Config", "Subnet: %s", config->subnet_mask);
+        LOGI("Config", "Gateway: %s", config->gateway);
+        LOGI("Config", "DNS: %s, %s", config->dns1, strlen(config->dns2) > 0 ? config->dns2 : "(none)");
     } else {
-        Logger.logLine("IP: DHCP");
+        LOGI("Config", "IP: DHCP");
     }
 
 #if HAS_MQTT
     if (strlen(config->mqtt_host) > 0) {
         uint16_t port = config->mqtt_port > 0 ? config->mqtt_port : 1883;
         if (config->mqtt_interval_seconds > 0) {
-            Logger.logLinef("MQTT: %s:%d (%ds)", config->mqtt_host, port, config->mqtt_interval_seconds);
+            LOGI("Config", "MQTT: %s:%d (%ds)", config->mqtt_host, port, config->mqtt_interval_seconds);
         } else {
-            Logger.logLinef("MQTT: %s:%d (publish disabled)", config->mqtt_host, port);
+            LOGI("Config", "MQTT: %s:%d (publish disabled)", config->mqtt_host, port);
         }
-        Logger.logLinef("MQTT User: %s", strlen(config->mqtt_username) > 0 ? config->mqtt_username : "(none)");
-        Logger.logLinef("MQTT Pass: %s", strlen(config->mqtt_password) > 0 ? "***" : "(none)");
+        LOGI("Config", "MQTT User: %s", strlen(config->mqtt_username) > 0 ? config->mqtt_username : "(none)");
+        LOGI("Config", "MQTT Pass: %s", strlen(config->mqtt_password) > 0 ? "***" : "(none)");
     } else {
-        Logger.logLine("MQTT: disabled");
+        LOGI("Config", "MQTT: disabled");
     }
 #else
     // MQTT config can still exist in NVS, but the firmware has MQTT support compiled out.
-    Logger.logLine("MQTT: disabled (feature not compiled into firmware)");
+    LOGI("Config", "MQTT: disabled (feature not compiled into firmware)");
 #endif
 }

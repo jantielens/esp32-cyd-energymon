@@ -4,9 +4,9 @@
 #include "app/log_manager.h"
 
 // Firmware version information
-#define VERSION_MAJOR 1
+#define VERSION_MAJOR 0
 #define VERSION_MINOR 0
-#define VERSION_PATCH 0
+#define VERSION_PATCH 41
 
 // Build date (automatically set by compiler)
 #define BUILD_DATE __DATE__
@@ -20,14 +20,10 @@
 
 // Function to print version information
 inline void printVersionInfo() {
-  Logger.println("=== Firmware Version ===");
-  Logger.print("Version: ");
-  Logger.println(VERSION_STRING);
-  Logger.print("Build Date: ");
-  Logger.println(BUILD_DATE);
-  Logger.print("Build Time: ");
-  Logger.println(BUILD_TIME);
-  Logger.println("========================");
+  LOGI("SYS", "Firmware Version");
+  LOGI("SYS", "Version: %s", VERSION_STRING);
+  LOGI("SYS", "Build Date: %s", BUILD_DATE);
+  LOGI("SYS", "Build Time: %s", BUILD_TIME);
 }
 
 #endif // VERSION_H

@@ -2,6 +2,9 @@
 build/
 bin/arduino-cli
 
+# Generated ESP Web Tools installer site
+site/
+
 # Generated LVGL PNG assets
 src/app/png_assets.cpp
 src/app/png_assets.h
@@ -9,6 +12,8 @@ src/app/png_assets.h
 # Auto-generated web assets
 src/app/web_assets.h
 src/app/project_branding.h
+src/app/github_release_config.h
+src/app/repo_slug_config.h
 
 # Arduino CLI configuration
 .arduino15/

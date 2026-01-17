@@ -21,7 +21,7 @@ Arduino_GFX_Driver::~Arduino_GFX_Driver() {
 }
 
 void Arduino_GFX_Driver::init() {
-    Logger.logLine("Arduino_GFX: Initializing QSPI display driver");
+    LOGI("GFX", "Initializing QSPI display driver");
     
     // Initialize backlight pin first
     #ifdef LCD_BL_PIN
@@ -31,11 +31,11 @@ void Arduino_GFX_Driver::init() {
     // Configure PWM for smooth brightness control
     #if ESP_ARDUINO_VERSION_MAJOR >= 3
     double actualFreq = ledcAttach(LCD_BL_PIN, 5000, 8);  // pin, freq (5kHz), resolution (8-bit)
-    Logger.logLinef("Arduino_GFX: PWM attached on GPIO%d, actual freq: %.1f Hz", LCD_BL_PIN, actualFreq);
+    LOGI("GFX", "PWM attached on GPIO%d, actual freq: %.1f Hz", LCD_BL_PIN, actualFreq);
     #else
     ledcSetup(TFT_BACKLIGHT_PWM_CHANNEL, 5000, 8);
     ledcAttachPin(LCD_BL_PIN, TFT_BACKLIGHT_PWM_CHANNEL);
-    Logger.logLinef("Arduino_GFX: PWM setup complete on GPIO%d (channel %d)", LCD_BL_PIN, TFT_BACKLIGHT_PWM_CHANNEL);
+    LOGI("GFX", "PWM setup complete on GPIO%d (channel %d)", LCD_BL_PIN, TFT_BACKLIGHT_PWM_CHANNEL);
     #endif
     backlightPwmAttached = true;
 
@@ -47,7 +47,7 @@ void Arduino_GFX_Driver::init() {
     #else
     digitalWrite(LCD_BL_PIN, HIGH);
     #endif
-    Logger.logLinef("Arduino_GFX: Backlight enabled on GPIO%d", LCD_BL_PIN);
+    LOGI("GFX", "Backlight enabled on GPIO%d", LCD_BL_PIN);
     #endif
     #endif
     
@@ -61,9 +61,9 @@ void Arduino_GFX_Driver::init() {
         LCD_QSPI_D2,    // D2
         LCD_QSPI_D3     // D3
     );
-    Logger.logLine("Arduino_GFX: QSPI bus created");
+    LOGI("GFX", "QSPI bus created");
     #else
-    Logger.logLine("Arduino_GFX: ERROR - QSPI pins not defined in board_config.h");
+    LOGE("GFX", "QSPI pins not defined in board_config.h");
     return;
     #endif
     
@@ -72,26 +72,26 @@ void Arduino_GFX_Driver::init() {
     // 0 = initial rotation (portrait)
     // false = IPS mode
     gfx = new Arduino_AXS15231B(bus, LCD_QSPI_RST, 0, false, displayWidth, displayHeight);
-    Logger.logLine("Arduino_GFX: AXS15231B panel object created");
+    LOGI("GFX", "AXS15231B panel object created");
     
     // Create canvas for buffered rendering
     // Canvas rotation matches DISPLAY_ROTATION for proper LVGL alignment
     canvas = new Arduino_Canvas(displayWidth, displayHeight, gfx, 0, 0, displayRotation);
-    Logger.logLinef("Arduino_GFX: Canvas created with rotation=%d", displayRotation);
+    LOGI("GFX", "Canvas created with rotation=%d", displayRotation);
     
     // Initialize display via canvas (canvas->begin() initializes the underlying display)
     if (!canvas->begin(40000000UL)) {  // 40MHz QSPI frequency
-        Logger.logLine("Arduino_GFX: ERROR - Failed to initialize display");
+        LOGE("GFX", "Failed to initialize display");
         return;
     }
-    Logger.logLine("Arduino_GFX: Display initialized via canvas");
+    LOGI("GFX", "Display initialized via canvas");
     
     // Clear screen
     canvas->fillScreen(BLACK);
     canvas->flush();
-    Logger.logLine("Arduino_GFX: Screen cleared");
+    LOGI("GFX", "Screen cleared");
     
-    Logger.logLinef("Arduino_GFX: Display ready: %dx%d", displayWidth, displayHeight);
+    LOGI("GFX", "Display ready: %dx%d", displayWidth, displayHeight);
 }
 
 void Arduino_GFX_Driver::setRotation(uint8_t rotation) {

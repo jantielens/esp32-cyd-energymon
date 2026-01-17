@@ -75,7 +75,7 @@ void TouchManager::readCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
 }
 
 void TouchManager::init() {
-    Logger.logBegin("Touch Manager Init");
+    LOGI("Touch", "Manager init start");
     
     // Create standalone touch driver (no dependency on display)
     #if TOUCH_DRIVER == TOUCH_DRIVER_XPT2046
@@ -99,18 +99,18 @@ void TouchManager::init() {
     // Set rotation to match display
     #ifdef DISPLAY_ROTATION
     driver->setRotation(DISPLAY_ROTATION);
-    Logger.logLinef("Touch rotation: %d", DISPLAY_ROTATION);
+    LOGI("Touch", "Rotation: %d", DISPLAY_ROTATION);
     #endif
 
     // Register with LVGL as input device.
     // Do NOT block boot indefinitely if the LVGL task/mutex is stuck; defer and retry.
     lvglRegisterPending = true;
     if (tryRegisterWithLVGL()) {
-        Logger.logLine("Touch input device registered with LVGL");
+        LOGI("Touch", "Input device registered with LVGL");
     } else {
-        Logger.logLine("Touch LVGL registration deferred (LVGL busy)");
+        LOGW("Touch", "LVGL registration deferred (LVGL busy)");
     }
-    Logger.logEnd();
+    LOGI("Touch", "Manager init complete");
 }
 
 bool TouchManager::tryRegisterWithLVGL() {

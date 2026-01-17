@@ -170,8 +170,12 @@ void InfoScreen::update() {
     if (heapLabel) {
         char heap_text[64];
         unsigned long heap_kb = ESP.getFreeHeap() / 1024;
-        int cpu_usage = device_telemetry_get_cpu_usage();
-        snprintf(heap_text, sizeof(heap_text), "%lu KB free / %d%% CPU", heap_kb, cpu_usage);
+        const int cpu_usage = device_telemetry_get_cpu_usage();
+        if (cpu_usage >= 0) {
+            snprintf(heap_text, sizeof(heap_text), "%lu KB free / %d%% CPU", heap_kb, cpu_usage);
+        } else {
+            snprintf(heap_text, sizeof(heap_text), "%lu KB free / --%% CPU", heap_kb);
+        }
         lv_label_set_text(heapLabel, heap_text);
     }
     

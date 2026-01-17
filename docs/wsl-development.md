@@ -88,7 +88,7 @@ ls -l /dev/ttyUSB*
 ls -l /dev/ttyACM*
 ```
 
-You should see a device like `/dev/ttyUSB0` or `/dev/ttyACM0`.
+You should see a device like `/dev/ttyUSB0`, `/dev/ttyUSB1`, `/dev/ttyACM0`, etc.
 
 ### Step 5: Set Permissions (if needed)
 
@@ -107,13 +107,20 @@ Once the device is attached, you can use the project scripts:
 ### Upload Firmware
 
 ```bash
+# Single-board projects (port as first arg)
 ./upload.sh /dev/ttyUSB0
+
+# Multi-board projects (this template’s default): specify board name
+./upload.sh esp32c3-waveshare-169-st7789v2 /dev/ttyACM0
+
+# Or just let the scripts auto-detect the port
+./upload.sh esp32c3-waveshare-169-st7789v2
 ```
 
 If your device is on a different port:
 
 ```bash
-./upload.sh /dev/ttyACM0
+./upload.sh esp32c3-waveshare-169-st7789v2 /dev/ttyACM1
 ```
 
 ### Monitor Serial Output
@@ -196,7 +203,11 @@ ls -l /dev/ttyUSB* /dev/ttyACM*
 lsusb
 
 # Upload firmware
+# Single-board projects
 ./upload.sh /dev/ttyUSB0
+
+# Multi-board projects
+./upload.sh esp32c3-waveshare-169-st7789v2
 
 # Monitor serial output
 ./monitor.sh /dev/ttyUSB0 115200

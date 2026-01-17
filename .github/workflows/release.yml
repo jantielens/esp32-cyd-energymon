@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*.*.*'  # Matches v0.0.1, v1.0.0, v1.2.3-beta.1, etc.
 
+permissions:
+  contents: read
+
 jobs:
   # Generate build matrix from config.sh
   prepare-matrix:
@@ -116,13 +119,60 @@ jobs:
         VERSION="${{ needs.prepare-matrix.outputs.version }}"
         PROJECT_NAME="${{ needs.prepare-matrix.outputs.project_name }}"
         BOARD_DIR="build/${{ matrix.board.name }}"
-        
-        # Find and rename .bin file
-        BIN_FILE=$(find "$BOARD_DIR" -name "*.bin" -type f | head -n 1)
-        if [ -n "$BIN_FILE" ]; then
-          cp "$BIN_FILE" "$BOARD_DIR/$PROJECT_NAME-${{ matrix.board.name }}-v$VERSION.bin"
-          echo "Created: $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION.bin"
+
+        # Explicitly package the correct firmware images.
+        # - app.ino.bin: app-only image
+        # - app.ino.bootloader.bin: bootloader
+        # - app.ino.partitions.bin: partition table
+        # - boot_app0.bin: OTA boot helper (from ESP32 core)
+        # - app.ino.merged.bin: legacy merged image (flash at offset 0; may overwrite NVS)
+
+          APP_BIN="$BOARD_DIR/app.ino.bin"
+          BOOTLOADER_BIN="$BOARD_DIR/app.ino.bootloader.bin"
+          PARTITIONS_BIN="$BOARD_DIR/app.ino.partitions.bin"
+          MERGED_BIN="$BOARD_DIR/app.ino.merged.bin"
+
+        if [ ! -f "$APP_BIN" ]; then
+          echo "Error: app-only firmware not found: $APP_BIN"
+          exit 1
         fi
+        if [ ! -f "$BOOTLOADER_BIN" ]; then
+          echo "Error: bootloader firmware not found: $BOOTLOADER_BIN"
+          exit 1
+        fi
+        if [ ! -f "$PARTITIONS_BIN" ]; then
+          echo "Error: partitions binary not found: $PARTITIONS_BIN"
+          exit 1
+        fi
+        if [ ! -f "$MERGED_BIN" ]; then
+          echo "Error: merged firmware not found: $MERGED_BIN"
+          exit 1
+        fi
+
+        cp "$APP_BIN" "$BOARD_DIR/$PROJECT_NAME-${{ matrix.board.name }}-v$VERSION.bin"
+        echo "Created: $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION.bin"
+
+        cp "$BOOTLOADER_BIN" "$BOARD_DIR/$PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-bootloader.bin"
+        echo "Created: $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-bootloader.bin"
+
+        cp "$PARTITIONS_BIN" "$BOARD_DIR/$PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-partitions.bin"
+        echo "Created: $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-partitions.bin"
+
+        # boot_app0.bin is provided by the installed ESP32 core.
+        ESP32_HW_BASE="$HOME/.arduino15/packages/esp32/hardware/esp32"
+        ESP32_DIR=$(ls -1d "$ESP32_HW_BASE"/*/ 2>/dev/null | sort -V | tail -n 1 || true)
+        ESP32_DIR="${ESP32_DIR%/}"
+        BOOT_APP0_SRC="$ESP32_DIR/tools/partitions/boot_app0.bin"
+        if [ ! -f "$BOOT_APP0_SRC" ]; then
+          echo "Error: boot_app0.bin not found in ESP32 core: $BOOT_APP0_SRC"
+          exit 1
+        fi
+
+        cp "$BOOT_APP0_SRC" "$BOARD_DIR/$PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-boot_app0.bin"
+        echo "Created: $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-boot_app0.bin"
+
+        cp "$MERGED_BIN" "$BOARD_DIR/$PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-merged.bin"
+        echo "Created: $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-merged.bin"
         
         # Find and rename .elf file
         ELF_FILE=$(find "$BOARD_DIR" -name "*.elf" -type f | head -n 1)
@@ -154,11 +204,19 @@ jobs:
         Workflow: ${{ github.workflow }}
         
         Firmware Files:
-        - $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION.bin (flash image)
+        - $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION.bin (app-only image)
+        - $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-bootloader.bin (bootloader)
+        - $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-partitions.bin (partition table)
+        - $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-boot_app0.bin (OTA boot helper)
+        - $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-merged.bin (legacy merged image; may overwrite NVS)
         - $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION.elf (debug symbols)
         
-        Flash Command:
-        esptool.py --chip auto --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION.bin
+        Flash Command (multi-part; preserves NVS by default):
+        esptool.py --chip auto --port /dev/ttyUSB0 --baud 921600 write_flash \
+          0x0 $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-bootloader.bin \
+          0x8000 $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-partitions.bin \
+          0xE000 $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION-boot_app0.bin \
+          0x10000 $PROJECT_NAME-${{ matrix.board.name }}-v$VERSION.bin
         EOF
         
         cat "$BOARD_DIR/build-info-${{ matrix.board.name }}.txt"
@@ -169,15 +227,23 @@ jobs:
         name: ${{ needs.prepare-matrix.outputs.project_name }}-${{ matrix.board.name }}-v${{ needs.prepare-matrix.outputs.version }}
         path: |
           build/${{ matrix.board.name }}/${{ needs.prepare-matrix.outputs.project_name }}-*-v${{ needs.prepare-matrix.outputs.version }}.bin
+          build/${{ matrix.board.name }}/${{ needs.prepare-matrix.outputs.project_name }}-*-v${{ needs.prepare-matrix.outputs.version }}-bootloader.bin
+          build/${{ matrix.board.name }}/${{ needs.prepare-matrix.outputs.project_name }}-*-v${{ needs.prepare-matrix.outputs.version }}-partitions.bin
+          build/${{ matrix.board.name }}/${{ needs.prepare-matrix.outputs.project_name }}-*-v${{ needs.prepare-matrix.outputs.version }}-boot_app0.bin
+          build/${{ matrix.board.name }}/${{ needs.prepare-matrix.outputs.project_name }}-*-v${{ needs.prepare-matrix.outputs.version }}-merged.bin
           build/${{ matrix.board.name }}/${{ needs.prepare-matrix.outputs.project_name }}-*-v${{ needs.prepare-matrix.outputs.version }}.elf
           build/${{ matrix.board.name }}/build-info-*.txt
         retention-days: 90
     
-    - name: Prepare release files (bin only)
+    - name: Prepare release files (app + merged)
       run: |
         PROJECT_NAME="${{ needs.prepare-matrix.outputs.project_name }}"
         mkdir -p release-files-${{ matrix.board.name }}
         cp build/${{ matrix.board.name }}/$PROJECT_NAME-*-v${{ needs.prepare-matrix.outputs.version }}.bin release-files-${{ matrix.board.name }}/
+        cp build/${{ matrix.board.name }}/$PROJECT_NAME-*-v${{ needs.prepare-matrix.outputs.version }}-bootloader.bin release-files-${{ matrix.board.name }}/
+        cp build/${{ matrix.board.name }}/$PROJECT_NAME-*-v${{ needs.prepare-matrix.outputs.version }}-partitions.bin release-files-${{ matrix.board.name }}/
+        cp build/${{ matrix.board.name }}/$PROJECT_NAME-*-v${{ needs.prepare-matrix.outputs.version }}-boot_app0.bin release-files-${{ matrix.board.name }}/
+        cp build/${{ matrix.board.name }}/$PROJECT_NAME-*-v${{ needs.prepare-matrix.outputs.version }}-merged.bin release-files-${{ matrix.board.name }}/
     
     - name: Upload release files
       uses: actions/upload-artifact@v4
@@ -225,8 +291,8 @@ jobs:
     - name: Organize release files
       run: |
         mkdir -p release-files
-        
-        # Move only .bin files to release-files directory
+
+        # Move .bin files (includes app-only and merged) to release-files directory
         find release-artifacts -type f -name "*.bin" -exec mv {} release-files/ \;
         
         echo "Release files:"
@@ -247,6 +313,6 @@ jobs:
         files: release-files/*
         draft: false
         prerelease: ${{ needs.prepare-matrix.outputs.is_prerelease }}
-        generate_release_notes: true  # Append auto-generated notes
+        generate_release_notes: false # Keep release notes strictly from CHANGELOG.md
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}

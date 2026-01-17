@@ -4,6 +4,9 @@
 # This file contains common configuration and helper functions used by all scripts
 # Source this file at the beginning of each script
 
+# Get script directory (works when sourced)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # ============================================================================
 # PROJECT BRANDING CONFIGURATION
 # ============================================================================
@@ -27,8 +30,8 @@
 #   - REST API /api/info response (both values included)
 #   Example: "ESP32 Template"
 #
-PROJECT_NAME="esp32-cyd-em"
-PROJECT_DISPLAY_NAME="Energy Monitor"
+PROJECT_NAME="esp32-template"
+PROJECT_DISPLAY_NAME="ESP32 Template"
 
 # Board configuration (FQBN - Fully Qualified Board Name)
 # Define target boards as an associative array: ["board-name"]="FQBN"
@@ -53,18 +56,33 @@ PROJECT_DISPLAY_NAME="Energy Monitor"
 #   ["cyd-v2"]="esp32:esp32:esp32"                                                # CYD display v2 (same FQBN as classic ESP32)
 
 declare -A FQBN_TARGETS=(
-    #["esp32-nodisplay"]="esp32:esp32:esp32" # Classic ESP32 dev module (no display)
+    ["esp32-nodisplay"]="esp32:esp32:esp32" # Classic ESP32 dev module (no display)
     ["cyd-v2"]="esp32:esp32:esp32:PartitionScheme=min_spiffs" # CYD v2 display (ESP32 + display; minimal spiffs)
-    #["esp32c3-waveshare-169-st7789v2"]="esp32:esp32:nologo_esp32c3_super_mini:PartitionScheme=ota_1_9mb,CDCOnBoot=default" # ESP32-C3 Super Mini + Waveshare 1.69\" ST7789V2 (240x280; OTA-friendly partitions)
-    #["jc3248w535"]="esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB,USBMode=hwcdc,CDCOnBoot=cdc" # ESP32-S3 JC3248W535 (16MB + OPI PSRAM)
-    #["jc3636w518"]="esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB,USBMode=hwcdc,CDCOnBoot=cdc" # ESP32-S3 JC3636W518 (16MB + OPI PSRAM)
+    ["esp32c3-waveshare-169-st7789v2"]="esp32:esp32:nologo_esp32c3_super_mini:PartitionScheme=ota_1_9mb,CDCOnBoot=default" # ESP32-C3 Super Mini + Waveshare 1.69\" ST7789V2 (240x280; OTA-friendly partitions)
+    ["jc3248w535"]="esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB,USBMode=hwcdc,CDCOnBoot=cdc" # ESP32-S3 JC3248W535 (16MB + OPI PSRAM)
+    ["jc3636w518"]="esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB,USBMode=hwcdc,CDCOnBoot=cdc" # ESP32-S3 JC3636W518 (16MB + OPI PSRAM)
 )
 
 # Default board (used when only one board is configured)
 DEFAULT_BOARD=""
 
-# Get script directory (works when sourced)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ----------------------------------------------------------------------------
+# Optional project-specific overrides
+# ----------------------------------------------------------------------------
+# To make it easier to merge upstream template changes into downstream projects,
+# projects can keep their branding and board list in a separate file.
+#
+# If present, this file is sourced AFTER defaults above, so it can override:
+#   - PROJECT_NAME / PROJECT_DISPLAY_NAME
+#   - DEFAULT_BOARD
+#   - FQBN_TARGETS (redeclare the associative array)
+#
+# Recommended filename: config.project.sh (commit it in the project repo).
+
+PROJECT_CONFIG_FILE="$SCRIPT_DIR/config.project.sh"
+if [[ -f "$PROJECT_CONFIG_FILE" ]]; then
+    source "$PROJECT_CONFIG_FILE"
+fi
 
 # Color definitions for terminal output
 BLUE='\033[0;34m'
@@ -126,18 +144,26 @@ find_arduino_cli() {
 }
 
 # Auto-detect serial port
-# Returns /dev/ttyUSB0 if exists, otherwise /dev/ttyACM0
+# Prefers /dev/ttyUSB* (UART adapters) then /dev/ttyACM* (USB CDC)
 # Returns exit code 1 if no port found
 find_serial_port() {
-    if [ -e /dev/ttyUSB0 ]; then
-        echo "/dev/ttyUSB0"
+    local port
+
+    # Prefer ttyUSB devices first.
+    port=$(ls -1 /dev/ttyUSB* 2>/dev/null | sort -V | head -n 1 || true)
+    if [[ -n "$port" ]]; then
+        echo "$port"
         return 0
-    elif [ -e /dev/ttyACM0 ]; then
-        echo "/dev/ttyACM0"
-        return 0
-    else
-        return 1
     fi
+
+    # Then fall back to ttyACM devices.
+    port=$(ls -1 /dev/ttyACM* 2>/dev/null | sort -V | head -n 1 || true)
+    if [[ -n "$port" ]]; then
+        echo "$port"
+        return 0
+    fi
+
+    return 1
 }
 
 # Get board name (identity function now - board names are the keys)

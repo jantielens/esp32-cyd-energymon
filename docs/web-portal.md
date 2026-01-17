@@ -9,6 +9,7 @@ The web portal provides:
 - Real-time device health monitoring
 - Over-the-air (OTA) firmware updates
 - REST API for programmatic access
+- Optional HTTP Basic Authentication (Full Mode only)
 - Responsive web interface (desktop & mobile)
 
 ## Portal Modes
@@ -44,6 +45,10 @@ The web portal provides:
 - Real-time health monitoring
 - OTA firmware updates
 - Device reboot
+
+**Optional Authentication:**
+- If HTTP Basic Auth is enabled in configuration, the portal UI pages and all REST API endpoints require credentials.
+- Authentication is only enforced in Full Mode.
 
 ## Device Discovery
 
@@ -119,7 +124,7 @@ The web portal is organized into three separate pages for better organization an
 |------|-----|-------------|--------------|
 | **Home** | `/` or `/home.html` | Additional/custom settings and welcome message | Full Mode only |
 | **Network** | `/network.html` | WiFi, device, and network configuration | Both modes |
-| **Firmware** | `/firmware.html` | OTA updates and factory reset | Full Mode only |
+| **Firmware** | `/firmware.html` | Online update, manual upload, and factory reset | Full Mode only |
 
 **Navigation:**
 - Tabbed navigation at top of page
@@ -167,22 +172,27 @@ Real-time device health monitoring integrated as a header badge with expandable 
 - Current CPU usage percentage
 - Orange background for visibility
 - Click to expand full health overlay
-- Updates every 10 seconds
+- Poll interval is configurable by firmware (see `GET /api/info`)
 
-**Expanded Overlay (11 metrics):**
+**Expanded Overlay:**
 - Appears top-right when badge clicked
 - **Uptime**: Device runtime
 - **Reset Reason**: Why device last restarted
-- **CPU Usage**: Percentage based on IDLE task
+- **CPU Usage**: Percentage based on IDLE task (nullable when runtime stats unavailable)
 - **Core Temp**: Internal temperature sensor (ESP32-C3/S2/S3/C2/C6/H2)
-- **Free Heap**: Available RAM
-- **Min Heap**: Minimum free heap since boot
-- **Fragmentation**: Heap fragmentation percentage
+- **Internal Heap**: Free/min/largest block + fragmentation
+- **PSRAM**: Free/min/largest block + fragmentation (when present)
 - **Flash Usage**: Used firmware space
-- **RSSI**: WiFi signal strength (when connected)
-- **IP Address**: Current IP (when connected)
+- **Filesystem**: FFat presence/mounted/usage (nullable when no partition present)
+- **MQTT**: Enabled/connected/publish age
+- **Display**: FPS + timing (when display present)
+- **RSSI / IP Address**: Network signal and IP (when connected)
 - Click `✕` to close
-- Updates every 5 seconds when expanded
+- Same polling cadence as configured by firmware
+
+**Sparklines (Optional):**
+- If the firmware exposes device-side history, the portal fetches it from `GET /api/health/history` (only while the overlay is expanded).
+- If device-side history is unavailable, the overlay shows point-in-time metrics only (no sparklines).
 
 ### Configuration Pages
 
@@ -215,6 +225,9 @@ Real-time device health monitoring integrated as a header badge with expandable 
   - Gateway (required if fixed IP set)
   - DNS Server 1 (optional, defaults to gateway)
   - DNS Server 2 (optional)
+- **🔒 Security (Optional)**: HTTP Basic Authentication
+  - Configure in Full Mode only (hidden/locked in Core Mode)
+  - Enable, set username, and set/update password
 - **📡 MQTT Settings (Optional)**: MQTT broker settings
   - Only shown when MQTT support is enabled in firmware (`HAS_MQTT`)
   - Host, port, username/password, publish interval
@@ -228,7 +241,10 @@ Real-time device health monitoring integrated as a header badge with expandable 
 **Available In:** Full Mode only (redirects to Network page in AP mode)
 
 **Sections:**
-- **📦 Firmware Update (OTA)**: Upload .bin firmware file
+- **🌐 Online Update (GitHub Pages)**: Opens the GitHub Pages updater in a new tab and passes the device URL via querystring.
+  - The Pages site reads `device` and calls the device API to start the update.
+  - Repo owner/name comes from build-time git remote detection (auto-generated into `src/app/repo_slug_config.h`).
+- **📦 Manual Update (Upload)**: Upload .bin firmware file
   - Select .bin file from build directory
   - Upload progress bar
   - Automatic reboot and reconnection
@@ -339,6 +355,11 @@ or device taking longer to boot.
 
 All endpoints return JSON responses with proper HTTP status codes.
 
+**Authentication (Optional):**
+- If HTTP Basic Auth is enabled (Full Mode only), requests must include an `Authorization: Basic ...` header.
+- Example: `curl -u username:password http://<device-ip>/api/info`
+- In Core Mode (AP + captive portal), endpoints are intentionally unauthenticated to allow initial setup.
+
 ### Device Information
 
 #### `GET /api/info`
@@ -351,12 +372,18 @@ Returns comprehensive device information.
   "version": "0.0.1",
   "build_date": "Nov 25 2025",
   "build_time": "14:30:00",
+  "board_name": "esp32-nodisplay",
   "chip_model": "ESP32-C3",
   "chip_revision": 4,
   "chip_cores": 1,
   "cpu_freq": 160,
   "flash_chip_size": 4194304,
   "psram_size": 0,
+  "health_poll_interval_ms": 5000,
+  "health_history_seconds": 300,
+  "health_history_available": true,
+  "health_history_period_ms": 5000,
+  "health_history_samples": 60,
   "display_coord_width": 320,
   "display_coord_height": 240,
   "free_heap": 250000,
@@ -375,6 +402,15 @@ Returns comprehensive device information.
 - `mdns_name`: Full mDNS name (hostname + `.local`)
 - `hostname`: Short hostname
 
+**Health Widget Fields:**
+- `health_poll_interval_ms`: Poll interval used by the portal health overlay
+- `health_history_seconds`: History window length used by the portal sparklines
+
+**Health History Capability Fields:**
+- `health_history_available`: `true` when the device exposes `GET /api/health/history`
+- `health_history_period_ms`: Sampling cadence for device-side history
+- `health_history_samples`: Configured sample capacity for device-side history
+
 **Display Fields (when `HAS_DISPLAY` enabled):**
 - `display_coord_width`, `display_coord_height`: Display driver coordinate space dimensions (what direct pixel writes and the Image API target)
 
@@ -390,16 +426,42 @@ Returns real-time device health statistics.
   "uptime_seconds": 3600,
   "reset_reason": "Power On",
   "cpu_usage": 15,
-  "cpu_usage_min": 8,
-  "cpu_usage_max": 32,
   "cpu_freq": 160,
-  "temperature": 42,
+  "cpu_temperature": 42,
   "heap_free": 250000,
   "heap_min": 240000,
-  "heap_size": 327680,
+  "heap_largest": 120000,
+  "heap_internal_free": 200000,
+  "heap_internal_min": 190000,
+  "heap_internal_largest": 110000,
   "heap_fragmentation": 5,
+  "psram_free": 8388608,
+  "psram_min": 8350000,
+  "psram_largest": 8200000,
+  "psram_fragmentation": 2,
   "flash_used": 1048576,
   "flash_total": 3145728,
+  "fs_mounted": true,
+  "fs_used_bytes": 123456,
+  "fs_total_bytes": 987654,
+  "mqtt_enabled": true,
+  "mqtt_publish_enabled": true,
+  "mqtt_connected": true,
+  "mqtt_last_health_publish_ms": 1234567,
+  "mqtt_health_publish_age_ms": 4000,
+  "display_fps": 30,
+  "display_lv_timer_us": 250,
+  "display_present_us": 1200,
+
+  "heap_internal_free_min_window": 195000,
+  "heap_internal_free_max_window": 205000,
+  "heap_internal_largest_min_window": 100000,
+  "heap_fragmentation_max_window": 8,
+  "psram_free_min_window": 8300000,
+  "psram_free_max_window": 8388608,
+  "psram_largest_min_window": 8100000,
+  "psram_fragmentation_max_window": 4,
+
   "wifi_rssi": -45,
   "wifi_channel": 6,
   "ip_address": "192.168.1.100",
@@ -408,9 +470,38 @@ Returns real-time device health statistics.
 ```
 
 **Notes:**
-- `cpu_usage_min`, `cpu_usage_max`: Minimum and maximum CPU usage over the last 60 seconds
-- `temperature`: `null` on chips without internal sensor (original ESP32)
-- `wifi_rssi`, `wifi_channel`, `ip_address`, `hostname`: `null` when not connected
+- `cpu_usage`: `null` when FreeRTOS runtime stats are unavailable/disabled
+- `cpu_temperature`: `null` on chips without an internal temperature sensor
+- `fs_mounted`: `null` when no filesystem partition is present; `false` when present but not mounted
+- `wifi_rssi`, `wifi_channel`, `ip_address`: `null` when not connected
+- `*_min_window` / `*_max_window`: sampled continuously by firmware and returned as a multi-client-safe snapshot (captures short-lived dips/spikes)
+
+#### `GET /api/health/history`
+
+Returns device-side health history arrays for the portal sparklines.
+
+**Notes:**
+- Arrays are ordered oldest → newest.
+- `uptime_ms` values are monotonic `millis()` at sample time (wraps after ~49.7 days).
+- `cpu_usage` entries may be `null` when unavailable.
+
+**Response (example):**
+```json
+{
+  "available": true,
+  "period_ms": 5000,
+  "seconds": 300,
+  "samples": 60,
+  "count": 60,
+  "capacity": 60,
+
+  "uptime_ms": [120000, 125000, 130000],
+  "cpu_usage": [12, 14, 18],
+  "heap_internal_free": [190000, 189500, 189000],
+  "heap_internal_free_min_window": [188000, 188000, 188500],
+  "heap_internal_free_max_window": [195000, 194500, 194000]
+}
+```
 
 ### Configuration Management
 
@@ -431,6 +522,10 @@ Returns current device configuration (passwords excluded).
   "dns1": "",
   "dns2": "",
   "dummy_setting": "",
+
+  "basic_auth_enabled": false,
+  "basic_auth_username": "",
+  "basic_auth_password_set": false,
 
   "backlight_brightness": 100,
 
@@ -464,6 +559,10 @@ Save new configuration. Device reboots after successful save.
   "dns2": "8.8.4.4",
   "dummy_setting": "value",
 
+  "basic_auth_enabled": true,
+  "basic_auth_username": "admin",
+  "basic_auth_password": "change-me",
+
   "backlight_brightness": 70,
 
   "screen_saver_enabled": true,
@@ -485,6 +584,8 @@ Save new configuration. Device reboots after successful save.
 **Notes:**
 - Only fields present in request are updated
 - Password field: empty string = no change, non-empty = update
+- Basic Auth password is never returned by `GET /api/config`.
+- In Core Mode (AP mode), Basic Auth settings cannot be changed via `POST /api/config`.
 - Device automatically reboots after successful save
 - Web portal automatically polls for reconnection (see [Automatic Reconnection](#automatic-reconnection-after-reboot))
 
@@ -570,6 +671,53 @@ Upload new firmware binary for over-the-air update.
 - Device automatically reboots after successful update
 - Progress logged to serial monitor
 - Web portal shows upload progress bar, then automatically polls for reconnection (see [Automatic Reconnection](#automatic-reconnection-after-reboot))
+
+### GitHub Pages Online Update
+
+The GitHub Pages updater initiates OTA by POSTing a firmware URL to the device. The device downloads the firmware directly (app-only `.bin`) and flashes it.
+
+#### `POST /api/firmware/update`
+
+Start a background download+flash task using a provided URL.
+
+**Request Body:**
+```json
+{
+  "url": "https://<owner>.github.io/<repo>/firmware/<board>/app.bin",
+  "version": "0.0.2",
+  "sha256": "<optional>",
+  "size": 1215439
+}
+```
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "update_started": true,
+  "version": "0.0.2"
+}
+```
+
+#### `GET /api/firmware/update/status`
+
+Get current progress/state of the online update task.
+
+**Response (Example):**
+```json
+{
+  "in_progress": true,
+  "state": "writing",
+  "progress": 262144,
+  "total": 1215439,
+  "version": "0.0.2",
+  "error": ""
+}
+```
+
+**CORS:**
+- The device responds with `Access-Control-Allow-Origin: https://<owner>.github.io`.
+- Allowed headers: `Authorization`, `Content-Type`.
 
 ### Display Control (HAS_DISPLAY enabled)
 
@@ -1054,13 +1202,16 @@ If WiFi fails to connect after firmware update or reboot:
 ## Security Considerations
 
 **Current Implementation:**
-- No authentication required
-- Suitable for local/trusted networks only
-- Configuration API accessible to all clients
+- Optional HTTP Basic Authentication for the portal UI pages and all `/api/*` endpoints (Full Mode only)
+- In Core Mode (AP + captive portal), authentication is intentionally disabled to allow initial provisioning
+- Basic Auth credentials cannot be changed via the web UI/API while in Core Mode
+
+**Limitations:**
+- The portal uses plain HTTP by default; HTTP Basic Auth does not provide transport encryption. Use only on trusted networks, or put the device behind a VPN/reverse proxy/TLS terminator.
 
 **Production Recommendations:**
-- Add HTTP Basic Auth or API keys
-- Use HTTPS with self-signed certificates
+- Enable HTTP Basic Auth when the device is reachable on a shared network
+- Prefer HTTPS (with real certificate validation) when feasible
 - Implement rate limiting on sensitive endpoints
 - Add CSRF protection for POST/DELETE operations
 - Whitelist allowed WiFi SSIDs (prevent evil twin attacks)

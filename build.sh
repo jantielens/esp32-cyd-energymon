@@ -71,6 +71,7 @@ build_board() {
     local board_name="$2"
     local board_build_path="$BUILD_PATH/$board_name"
     local board_override_dir="$SCRIPT_DIR/src/boards/$board_name"
+    local board_overrides_file="$board_override_dir/board_overrides.h"
     
     echo -e "${CYAN}=== Building for $board_name ===${NC}"
     echo "Board:     $board_name"
@@ -79,6 +80,70 @@ build_board() {
     
     # Check for board-specific configuration overrides
     EXTRA_FLAGS=()
+
+    # Some Arduino libraries are compiled as separate translation units and do not
+    # see macros defined only in board_overrides.h.
+    # Keep this allowlisted to avoid arbitrary #define injection.
+    EXTRA_GLOBAL_DEFINES=""
+    EXTRA_GLOBAL_FLAGS=""
+    if [[ -f "$board_overrides_file" ]]; then
+        # Numeric-valued defines (exported as -DNAME=value)
+        # NOTE: Keep this allowlist tight; only export values needed by libraries.
+        numeric_allowlist=(
+            CONFIG_ASYNC_TCP_STACK_SIZE
+
+            # TFT_eSPI pinout and SPI frequencies
+            TFT_MISO
+            TFT_MOSI
+            TFT_SCLK
+            TFT_CS
+            TFT_DC
+            TFT_RST
+            TFT_BL
+            SPI_FREQUENCY
+            SPI_READ_FREQUENCY
+            SPI_TOUCH_FREQUENCY
+        )
+
+        for macro in "${numeric_allowlist[@]}"; do
+            value=$(grep -E "^[[:space:]]*#define[[:space:]]+${macro}[[:space:]]+" "$board_overrides_file" \
+                | head -n 1 \
+                | awk '{print $3}')
+            if [[ -n "${value:-}" ]]; then
+                if [[ "$value" =~ ^-?[0-9]+$ ]]; then
+                    EXTRA_GLOBAL_DEFINES+=" -D${macro}=${value}"
+                else
+                    echo -e "${YELLOW}Warning: ignoring invalid ${macro} value in $board_overrides_file: '$value'${NC}"
+                fi
+            fi
+        done
+
+        # Flag-only defines (exported as -DNAME)
+        flag_allowlist=(
+            # TFT_eSPI controller + bus selection
+            ILI9341_2_DRIVER
+            USE_HSPI_PORT
+        )
+
+        for macro in "${flag_allowlist[@]}"; do
+            if grep -Eq "^[[:space:]]*#define[[:space:]]+${macro}([[:space:]]+|$)" "$board_overrides_file"; then
+                EXTRA_GLOBAL_DEFINES+=" -D${macro}"
+            fi
+        done
+
+        # TFT_eSPI: support per-board setup without modifying global Arduino libraries.
+        # If a board provides src/boards/<board>/User_Setup.h, force-include it and
+        # mark USER_SETUP_LOADED so TFT_eSPI skips its default setup.
+        if [[ -f "$board_override_dir/User_Setup.h" ]]; then
+            EXTRA_GLOBAL_FLAGS+=" -DUSER_SETUP_LOADED=1 -include $board_override_dir/User_Setup.h"
+        fi
+
+    fi
+
+    # Always embed board name for runtime identification (used by firmware update UX).
+    # Use a string literal define: BUILD_BOARD_NAME="cyd-v2".
+    # Important: do NOT include backslashes in the final define value.
+    local BOARD_NAME_DEFINE="-DBUILD_BOARD_NAME=\"$board_name\""
     
     if [[ -d "$board_override_dir" ]]; then
         echo -e "${YELLOW}Config:    Using board-specific overrides from src/boards/$board_name/${NC}"
@@ -87,10 +152,12 @@ build_board() {
         # Sanitize board name for valid C++ macro (alphanumeric + underscore only)
         board_macro="BOARD_${board_name^^}"
         board_macro="${board_macro//[^A-Z0-9_]/_}"
-        EXTRA_FLAGS+=(--build-property "compiler.cpp.extra_flags=-I$board_override_dir -D$board_macro -DBOARD_HAS_OVERRIDE=1")
-        EXTRA_FLAGS+=(--build-property "compiler.c.extra_flags=-I$board_override_dir -D$board_macro -DBOARD_HAS_OVERRIDE=1")
+        EXTRA_FLAGS+=(--build-property "compiler.cpp.extra_flags=-I$board_override_dir -D$board_macro -DBOARD_HAS_OVERRIDE=1 $BOARD_NAME_DEFINE$EXTRA_GLOBAL_DEFINES$EXTRA_GLOBAL_FLAGS")
+        EXTRA_FLAGS+=(--build-property "compiler.c.extra_flags=-I$board_override_dir -D$board_macro -DBOARD_HAS_OVERRIDE=1 $BOARD_NAME_DEFINE$EXTRA_GLOBAL_DEFINES$EXTRA_GLOBAL_FLAGS")
     else
         echo "Config:    Using default configuration"
+        EXTRA_FLAGS+=(--build-property "compiler.cpp.extra_flags=$BOARD_NAME_DEFINE$EXTRA_GLOBAL_DEFINES$EXTRA_GLOBAL_FLAGS")
+        EXTRA_FLAGS+=(--build-property "compiler.c.extra_flags=$BOARD_NAME_DEFINE$EXTRA_GLOBAL_DEFINES$EXTRA_GLOBAL_FLAGS")
     fi
     echo ""
 

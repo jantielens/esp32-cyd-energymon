@@ -7,7 +7,6 @@
 #include "screens/screen.h"
 #include "screens/splash_screen.h"
 #include "screens/info_screen.h"
-#include "screens/energy_monitor_screen.h"
 #include "screens/test_screen.h"
 
 #if HAS_IMAGE_API
@@ -68,6 +67,10 @@ private:
     Screen* previousScreen;  // Track previous screen for return navigation
     Screen* pendingScreen;   // Deferred screen switch (processed in lvglTask)
 
+    // Defer small LVGL UI updates (like splash status) to the LVGL task.
+    char pendingSplashStatus[96];
+    volatile bool pendingSplashStatusSet;
+
     // Helpers: avoid taking the LVGL mutex when already inside the LVGL task
     bool isInLvglTask() const;
     void lockIfNeeded(bool& didLock);
@@ -76,7 +79,6 @@ private:
     // Screen instances (created at init, kept in memory)
     SplashScreen splashScreen;
     InfoScreen infoScreen;
-    EnergyMonitorScreen energyMonitorScreen;
     TestScreen testScreen;
     
     #if HAS_IMAGE_API
@@ -175,13 +177,19 @@ public:
     DisplayDriver* getDriver() { return driver; }
 };
 
+// Lightweight rendering/perf snapshot (best-effort).
+struct DisplayPerfStats {
+    uint16_t fps;
+    uint32_t lv_timer_us;
+    uint32_t present_us;
+};
+
 // Global instance (managed by app.ino)
 extern DisplayManager* displayManager;
 
 // C-style interface for app.ino
 void display_manager_init(DeviceConfig* config);
 void display_manager_show_splash();
-void display_manager_show_energy_monitor();
 void display_manager_show_info();
 void display_manager_show_test();
 void display_manager_show_screen(const char* screen_id, bool* success);  // success is optional output
@@ -195,6 +203,10 @@ void display_manager_set_backlight_brightness(uint8_t brightness);  // 0-100%
 void display_manager_lock();
 void display_manager_unlock();
 bool display_manager_try_lock(uint32_t timeout_ms);
+
+// Best-effort perf stats for diagnostics (/api/health).
+// Returns false until a first stats window has been captured.
+bool display_manager_get_perf_stats(DisplayPerfStats* out);
 
 #if HAS_IMAGE_API
 // C-style interface for image API

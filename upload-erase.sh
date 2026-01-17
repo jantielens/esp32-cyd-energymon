@@ -68,19 +68,25 @@ echo ""
 
 # Use esptool.py which is installed with ESP32 platform
 # The arduino-cli includes esptool.py with the ESP32 core
-ESPTOOL="$HOME/.arduino15/packages/esp32/tools/esptool_py/*/esptool.py"
-
-# Find esptool.py
-ESPTOOL_PATH=$(find "$HOME/.arduino15/packages/esp32/tools/esptool_py" -name "esptool.py" -type f 2>/dev/null | head -n 1)
+# Find esptool (newer cores) or esptool.py (older cores)
+ESPTOOL_DIR="$HOME/.arduino15/packages/esp32/tools/esptool_py"
+ESPTOOL_PATH=$(find "$ESPTOOL_DIR" -name "esptool" -type f -executable 2>/dev/null | head -n 1 || true)
+if [ -z "$ESPTOOL_PATH" ]; then
+    ESPTOOL_PATH=$(find "$ESPTOOL_DIR" -name "esptool.py" -type f 2>/dev/null | head -n 1 || true)
+fi
 
 if [ -z "$ESPTOOL_PATH" ]; then
-    echo -e "${RED}Error: esptool.py not found${NC}"
+    echo -e "${RED}Error: esptool not found${NC}"
     echo "Please ensure ESP32 platform is installed (run setup.sh)"
     exit 1
 fi
 
 # Erase flash
-python3 "$ESPTOOL_PATH" --chip "$CHIP_TYPE" --port "$PORT" erase_flash
+if [[ "$ESPTOOL_PATH" == *.py ]]; then
+    python3 "$ESPTOOL_PATH" --chip "$CHIP_TYPE" --port "$PORT" erase_flash
+else
+    "$ESPTOOL_PATH" --chip "$CHIP_TYPE" --port "$PORT" erase_flash
+fi
 
 echo ""
 echo -e "${GREEN}=== Flash Erase Complete ===${NC}"

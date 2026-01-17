@@ -41,10 +41,9 @@ SplashScreen::~SplashScreen() {
 }
 
 void SplashScreen::create() {
-    Logger.logBegin("SplashScreen::create");
+    LOGI("Splash", "Create start");
     if (screen) {
-        Logger.logLine("Already created");
-        Logger.logEnd();
+        LOGI("Splash", "Already created");
         return;  // Already created
     }
     
@@ -76,8 +75,7 @@ void SplashScreen::create() {
     // Position the whole block.
     layoutSplashBlock(screen, logoImg, statusLabel, spinner);
     
-    Logger.logLine("Screen created successfully");
-    Logger.logEnd();
+    LOGI("Splash", "Screen created");
 }
 
 void SplashScreen::destroy() {
@@ -106,12 +104,12 @@ void SplashScreen::update() {
 
 void SplashScreen::setStatus(const char* text) {
     if (statusLabel) {
-        Logger.logLinef("SplashScreen::setStatus: %s", text);
+        LOGI("Splash", "Status: %s", text ? text : "(null)");
         lv_label_set_text(statusLabel, text);
 
         // Re-layout in case the text height changed (wrapping, font changes, etc.)
         layoutSplashBlock(screen, logoImg, statusLabel, spinner);
     } else {
-        Logger.logLine("ERROR: statusLabel is NULL!");
+        LOGE("Splash", "statusLabel is NULL");
     }
 }

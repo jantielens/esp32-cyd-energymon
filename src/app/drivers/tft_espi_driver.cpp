@@ -7,25 +7,25 @@ TFT_eSPI_Driver::TFT_eSPI_Driver() : currentBrightness(100) {
 }
 
 void TFT_eSPI_Driver::init() {
-    Logger.logLine("TFT_eSPI: Initializing");
+    LOGI("TFT_eSPI", "Initializing");
     tft.init();
     
     #if HAS_BACKLIGHT
     // Initialize PWM for backlight control
-    Logger.logLinef("TFT_eSPI: Configuring PWM backlight control on pin %d", TFT_BL);
+    LOGI("TFT_eSPI", "Configuring PWM backlight control on pin %d", TFT_BL);
     
     // ESP32 Arduino Core 3.x uses new LEDC API
     #if ESP_ARDUINO_VERSION_MAJOR >= 3
     double actualFreq = ledcAttach(TFT_BL, 5000, 8);  // pin, freq (5kHz), resolution (8-bit)
-    Logger.logLinef("TFT_eSPI: PWM attached, actual freq: %.1f Hz", actualFreq);
+    LOGI("TFT_eSPI", "PWM attached, actual freq: %.1f Hz", actualFreq);
     #else
     // ESP32 Arduino Core 2.x uses old LEDC API
     ledcSetup(TFT_BACKLIGHT_PWM_CHANNEL, 5000, 8);  // channel, freq, resolution
     ledcAttachPin(TFT_BL, TFT_BACKLIGHT_PWM_CHANNEL);
-    Logger.logLinef("TFT_eSPI: PWM setup complete (channel %d)", TFT_BACKLIGHT_PWM_CHANNEL);
+    LOGI("TFT_eSPI", "PWM setup complete (channel %d)", TFT_BACKLIGHT_PWM_CHANNEL);
     #endif
     
-    Logger.logLinef("TFT_eSPI: Applying initial brightness: %d%%", currentBrightness);
+    LOGI("TFT_eSPI", "Applying initial brightness: %d%%", currentBrightness);
     setBacklightBrightness(currentBrightness);  // Apply initial brightness
     #endif
 }
@@ -98,23 +98,23 @@ void TFT_eSPI_Driver::applyDisplayFixes() {
     // Apply display-specific settings (inversion, gamma, etc.)
     #ifdef DISPLAY_INVERSION_ON
     tft.invertDisplay(true);
-    Logger.logLine("TFT_eSPI: Inversion ON");
+    LOGI("TFT_eSPI", "Inversion ON");
     #endif
     
     #ifdef DISPLAY_INVERSION_OFF
     tft.invertDisplay(false);
-    Logger.logLine("TFT_eSPI: Inversion OFF");
+    LOGI("TFT_eSPI", "Inversion OFF");
     #endif
     
     // Apply gamma fix (both v2 and v3 CYD variants need this)
     #ifdef DISPLAY_NEEDS_GAMMA_FIX
-    Logger.logLine("TFT_eSPI: Applying gamma correction fix");
+    LOGI("TFT_eSPI", "Applying gamma correction fix");
     tft.writecommand(0x26);
     tft.writedata(2);
     delay(120);
     tft.writecommand(0x26);
     tft.writedata(1);
-    Logger.logLine("TFT_eSPI: Gamma fix applied");
+    LOGI("TFT_eSPI", "Gamma fix applied");
     #endif
 }
 

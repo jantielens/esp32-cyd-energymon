@@ -34,15 +34,23 @@ app1,      app,  ota_1,    0x1F0000, 0x1E0000,
 
 ### 2) Register the scheme in the ESP32 Arduino core (via the installer script)
 
-Update [tools/install-custom-partitions.sh](../tools/install-custom-partitions.sh) to also install/register your new scheme.
+Run [tools/install-custom-partitions.sh](../tools/install-custom-partitions.sh) to install/register your new scheme.
 
-You’ll need:
+This template’s installer script:
+- Copies all `partitions/*.csv` from this repo into the installed ESP32 core.
+- Registers only the repo-provided schemes that are actively used by the configured boards (from `config.sh` / `config.project.sh`).
+- Derives `upload.maximum_size` from the `app0` partition size in the CSV.
+
+To be auto-discovered by the script, name your CSV like:
+- `partitions/partitions_<scheme_id>.csv`
+
+You’ll need (conceptually):
 
 - **Board ID**: the 3rd segment of the FQBN
   - Example: `esp32:esp32:nologo_esp32c3_super_mini:...` → board ID is `nologo_esp32c3_super_mini`
 - **Scheme ID**: the string used in `PartitionScheme=<scheme_id>`
-- **Partition filename (no extension)**: what `boards.txt` uses for `build.partitions`
-- **upload.maximum_size**: must match your app partition size (bytes)
+- **Partition filename (no extension)**: what `boards.txt` uses for `build.partitions` (the installer uses `partitions_<scheme_id>`)
+- **upload.maximum_size**: must match your app partition size (bytes) (the installer derives this from the CSV)
 
 The `boards.txt` entries you’re effectively adding look like:
 
@@ -52,9 +60,9 @@ The `boards.txt` entries you’re effectively adding look like:
 <BOARD_ID>.menu.PartitionScheme.<SCHEME_ID>.upload.maximum_size=<MAX_BYTES>
 ```
 
-### 3) Add/enable it in `config.sh`
+### 3) Add/enable it in `config.sh` (or `config.project.sh`)
 
-Add a target in [config.sh](../config.sh) that includes your `PartitionScheme` option in the FQBN, for example:
+Add a target in [config.sh](../config.sh) (or, for template-based projects, in `config.project.sh`) that includes your `PartitionScheme` option in the FQBN, for example:
 
 ```bash
 ["<board_name>"]="esp32:esp32:<BOARD_ID>:CDCOnBoot=cdc,PartitionScheme=<SCHEME_ID>"

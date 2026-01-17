@@ -25,8 +25,8 @@ DirectImageScreen::~DirectImageScreen() {
 
 void DirectImageScreen::create() {
     if (screen_obj) return;  // Already created
-    
-    Logger.logBegin("DirectImageScreen");
+
+    LOGI("DIRIMG", "Create start");
     
     // Create screen object with solid black background
     // This blank screen prevents LVGL from rendering while we write directly to LCD
@@ -42,11 +42,11 @@ void DirectImageScreen::create() {
         decoder.setDisplayDriver(manager->getDriver());
     }
     
-    Logger.logEnd();
+    LOGI("DIRIMG", "Create complete");
 }
 
 void DirectImageScreen::destroy() {
-    Logger.logBegin("DirectImageScreen Destroy");
+    LOGI("DIRIMG", "Destroy start");
     
     // End any active strip session
     if (session_active) {
@@ -59,13 +59,13 @@ void DirectImageScreen::destroy() {
         screen_obj = nullptr;
     }
     
-    Logger.logEnd();
+    LOGI("DIRIMG", "Destroy complete");
 }
 
 void DirectImageScreen::update() {
     // Check timeout if visible
     if (visible && is_timeout_expired()) {
-        Logger.logMessage("DirectImageScreen", "Timeout expired, returning to previous screen");
+        LOGI("DIRIMG", "Timeout expired, returning to previous screen");
 
         // Clean up our state while we're still running on the LVGL task.
         // The actual screen switch is deferred in DisplayManager.
@@ -96,7 +96,7 @@ void DirectImageScreen::show() {
     // before the screen becomes visible.
     display_start_time = millis();
     
-    Logger.logMessagef("DirectImageScreen", "Show (timeout: %lums)", display_timeout_ms);
+    LOGI("DIRIMG", "Show (timeout: %lums)", display_timeout_ms);
 }
 
 void DirectImageScreen::hide() {
@@ -112,8 +112,8 @@ void DirectImageScreen::hide() {
 }
 
 void DirectImageScreen::begin_strip_session(int width, int height) {
-    Logger.logBegin("Strip Session");
-    Logger.logLinef("Image: %dx%d", width, height);
+    LOGI("DIRIMG", "Strip session start");
+    LOGI("DIRIMG", "Image: %dx%d", width, height);
 
     // Each new upload should extend/restart the display timeout.
     // This is especially important when a new upload starts while we're already
@@ -139,12 +139,12 @@ void DirectImageScreen::begin_strip_session(int width, int height) {
     decoder.begin(width, height, lcd_width, lcd_height);
     session_active = true;
     
-    Logger.logEnd();
+    LOGI("DIRIMG", "Strip session ready");
 }
 
 bool DirectImageScreen::decode_strip(const uint8_t* jpeg_data, size_t jpeg_size, int strip_index, bool output_bgr565) {
     if (!session_active) {
-        Logger.logMessage("DirectImageScreen", "ERROR: No active strip session");
+        LOGE("DIRIMG", "No active strip session");
         return false;
     }
     
@@ -152,7 +152,7 @@ bool DirectImageScreen::decode_strip(const uint8_t* jpeg_data, size_t jpeg_size,
     bool success = decoder.decode_strip(jpeg_data, jpeg_size, strip_index, output_bgr565);
     
     if (!success) {
-        Logger.logMessagef("DirectImageScreen", "ERROR: Strip %d decode failed", strip_index);
+        LOGE("DIRIMG", "Strip %d decode failed", strip_index);
     }
     
     return success;
@@ -161,7 +161,7 @@ bool DirectImageScreen::decode_strip(const uint8_t* jpeg_data, size_t jpeg_size,
 void DirectImageScreen::end_strip_session() {
     if (!session_active) return;
     
-    Logger.logMessage("DirectImageScreen", "End strip session");
+    LOGI("DIRIMG", "End strip session");
     
     decoder.end();
     session_active = false;
@@ -169,12 +169,12 @@ void DirectImageScreen::end_strip_session() {
 
 void DirectImageScreen::set_timeout(unsigned long timeout_ms) {
     display_timeout_ms = timeout_ms;
-    Logger.logMessagef("DirectImageScreen", "Timeout set to %lu ms", timeout_ms);
+    LOGI("DIRIMG", "Timeout set to %lu ms", timeout_ms);
 }
 
 void DirectImageScreen::set_start_time(unsigned long start_time) {
     display_start_time = start_time;
-    Logger.logMessagef("DirectImageScreen", "Start time set to %lu", start_time);
+    LOGI("DIRIMG", "Start time set to %lu", start_time);
 }
 
 bool DirectImageScreen::is_timeout_expired() {

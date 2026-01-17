@@ -23,7 +23,7 @@ AXS15231B_TouchDriver::~AXS15231B_TouchDriver() {
 }
 
 void AXS15231B_TouchDriver::init() {
-    Logger.logLine("AXS15231B: Initializing I2C touch controller");
+    LOGI("AXS15231B", "Initializing I2C touch controller");
     
     #ifdef TOUCH_I2C_SCL
     // Create touch instance with I2C pins and interrupt
@@ -44,16 +44,16 @@ void AXS15231B_TouchDriver::init() {
     );
     
     if (!touch->begin()) {
-        Logger.logLine("AXS15231B: ERROR - Failed to initialize touch controller");
+        LOGE("AXS15231B", "Failed to initialize touch controller");
         return;
     }
     
     // Enable offset correction (from sample)
     touch->enOffsetCorrection(true);
     
-    Logger.logLine("AXS15231B: Touch controller initialized");
+    LOGI("AXS15231B", "Touch controller initialized");
     #else
-    Logger.logLine("AXS15231B: ERROR - Touch I2C pins not defined in board_config.h");
+    LOGE("AXS15231B", "Touch I2C pins not defined in board_config.h");
     #endif
 }
 

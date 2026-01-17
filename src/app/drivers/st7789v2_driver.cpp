@@ -51,7 +51,7 @@ void ST7789V2_Driver::rgb565ToBgr565(uint16_t* pixels, uint32_t count) {
 }
 
 void ST7789V2_Driver::init() {
-    Logger.logLine("ST7789V2: Initializing native driver");
+    LOGI("ST7789V2", "Initializing native driver");
     
     // Configure GPIO pins
     pinMode(LCD_CS_PIN, OUTPUT);
@@ -71,7 +71,7 @@ void ST7789V2_Driver::init() {
     spi->setBitOrder(MSBFIRST);
     spi->setFrequency(60000000); // 60MHz - within ST7789 spec
     
-    Logger.logLine("ST7789V2: SPI initialized at 60MHz");
+    LOGI("ST7789V2", "SPI initialized at 60MHz");
 
     // Hardware reset (matches sample timing)
     digitalWrite(LCD_CS_PIN, LOW);
@@ -173,19 +173,19 @@ void ST7789V2_Driver::init() {
     // End init sequence transaction
     digitalWrite(LCD_CS_PIN, HIGH);
 
-    Logger.logLine("ST7789V2: Display initialized");
+    LOGI("ST7789V2", "Display initialized");
     
     // Backlight on at saved brightness
     setBacklightBrightness(currentBrightness);
     
-    Logger.logLinef("ST7789V2: Backlight set to %d%%", currentBrightness);
+    LOGI("ST7789V2", "Backlight set to %d%%", currentBrightness);
 }
 
 void ST7789V2_Driver::setRotation(uint8_t rotation) {
     // Rotation is handled by LVGL software rotation (set in display_manager.cpp)
     // ST7789V2 panel stays in portrait mode (240x280)
     // No action needed here - just log for clarity
-    Logger.logLinef("ST7789V2: Rotation %d (handled by LVGL software rotation)", rotation);
+    LOGI("ST7789V2", "Rotation %d (handled by LVGL software rotation)", rotation);
 }
 
 void ST7789V2_Driver::setBacklight(bool on) {
@@ -214,7 +214,7 @@ bool ST7789V2_Driver::hasBacklightControl() {
 void ST7789V2_Driver::applyDisplayFixes() {
     // ST7789V2 init sequence already handles all required configuration
     // No additional fixes needed (inversion, gamma already set in init)
-    Logger.logLine("ST7789V2: Display fixes applied during init");
+    LOGI("ST7789V2", "Display fixes applied during init");
 }
 
 void ST7789V2_Driver::startWrite() {

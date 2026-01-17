@@ -15,8 +15,8 @@ TestScreen::~TestScreen() {
 
 void TestScreen::create() {
     if (screen) return;  // Already created
-    
-    Logger.logBegin("TestScreen::create");
+
+    LOGI("TestScreen", "Create start");
     
     // Create main screen container
     screen = lv_obj_create(NULL);
@@ -109,7 +109,7 @@ void TestScreen::create() {
     lv_obj_add_event_cb(screen, touchEventCallback, LV_EVENT_CLICKED, this);
     lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICKABLE);
     
-    Logger.logEnd();
+    LOGI("TestScreen", "Create complete");
 }
 
 void TestScreen::destroy() {

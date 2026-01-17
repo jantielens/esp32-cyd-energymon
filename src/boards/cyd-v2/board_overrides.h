@@ -35,6 +35,13 @@
 // For v2 (1 USB port): ILI9341_2_DRIVER with TFT_INVERSION_ON
 // Use the ILI9341_2 controller setup in TFT_eSPI.
 #define DISPLAY_DRIVER_ILI9341_2
+
+// TFT_eSPI library configuration (for clean builds / CI)
+// These macros are consumed by the TFT_eSPI library itself.
+#define ILI9341_2_DRIVER
+
+// CYD uses HSPI for the display.
+#define USE_HSPI_PORT
 // Enable display inversion (panel-specific).
 #define DISPLAY_INVERSION_ON true
 
@@ -70,7 +77,15 @@
 
 // SPI Frequency
 // TFT SPI clock frequency.
-#define TFT_SPI_FREQUENCY 55000000  // 55MHz
+#define TFT_SPI_FREQUENCY 40000000  // 40MHz (known-good for CYD)
+
+// TFT_eSPI library SPI frequency knobs
+// TFT_eSPI: SPI write frequency (Hz).
+#define SPI_FREQUENCY 40000000
+// TFT_eSPI: SPI read frequency (Hz).
+#define SPI_READ_FREQUENCY 20000000
+// TFT_eSPI: SPI touch frequency (Hz).
+#define SPI_TOUCH_FREQUENCY 2500000
 
 // Color Order
 // Panel uses BGR byte order.

@@ -110,6 +110,58 @@
 // #endif
 
 // ============================================================================
+// Web Portal Health Widget
+// ============================================================================
+// How often the web UI polls /api/health.
+#ifndef HEALTH_POLL_INTERVAL_MS
+#define HEALTH_POLL_INTERVAL_MS 5000
+#endif
+
+// How much client-side history (sparklines) to keep.
+#ifndef HEALTH_HISTORY_SECONDS
+#define HEALTH_HISTORY_SECONDS 300
+#endif
+
+// ============================================================================
+// Optional: Device-side Health History (/api/health/history)
+// ============================================================================
+// When enabled, firmware keeps a fixed-size ring buffer for sparklines so the
+// portal can render history even when no client was connected.
+// Default: enabled.
+#ifndef HEALTH_HISTORY_ENABLED
+#define HEALTH_HISTORY_ENABLED 1
+#endif
+
+// Sampling cadence for the device-side history (ms). Default aligns with UI poll.
+#ifndef HEALTH_HISTORY_PERIOD_MS
+#define HEALTH_HISTORY_PERIOD_MS 5000
+#endif
+
+#if HEALTH_HISTORY_ENABLED
+// Derived number of samples.
+#ifndef HEALTH_HISTORY_SAMPLES
+#define HEALTH_HISTORY_SAMPLES ((HEALTH_HISTORY_SECONDS * 1000) / HEALTH_HISTORY_PERIOD_MS)
+#endif
+
+// Guardrails (must compile in both C and C++ translation units).
+#if (HEALTH_HISTORY_PERIOD_MS < 1000)
+#error HEALTH_HISTORY_PERIOD_MS too small
+#endif
+
+#if (((HEALTH_HISTORY_SECONDS * 1000UL) % (HEALTH_HISTORY_PERIOD_MS)) != 0)
+#error HEALTH_HISTORY_SECONDS must be divisible by HEALTH_HISTORY_PERIOD_MS
+#endif
+
+#if (HEALTH_HISTORY_SAMPLES < 10)
+#error HEALTH_HISTORY_SAMPLES too small
+#endif
+
+#if (HEALTH_HISTORY_SAMPLES > 600)
+#error HEALTH_HISTORY_SAMPLES too large
+#endif
+#endif
+
+// ============================================================================
 // Display Configuration
 // ============================================================================
 // Enable display + LVGL UI support.
@@ -183,6 +235,40 @@
 // Prefer internal RAM over PSRAM for LVGL draw buffer allocation.
 #ifndef LVGL_BUFFER_PREFER_INTERNAL
 #define LVGL_BUFFER_PREFER_INTERNAL false
+#endif
+
+// ESP_Panel (QSPI) display driver: prefer internal RAM for the byte-swap buffer.
+// Default: true. Some panel buses are more reliable with internal/DMA-capable buffers.
+#ifndef ESP_PANEL_SWAPBUF_PREFER_INTERNAL
+#define ESP_PANEL_SWAPBUF_PREFER_INTERNAL true
+#endif
+
+// ============================================================================
+// Diagnostics / Telemetry
+// ============================================================================
+// Low-memory tripwire: when the internal heap minimum free (bytes) drops below this
+// threshold, dump per-task stack watermarks once.
+// Default: disabled (0). Enable per-board if you want early warning logs.
+#ifndef MEMORY_TRIPWIRE_INTERNAL_MIN_BYTES
+#define MEMORY_TRIPWIRE_INTERNAL_MIN_BYTES 0
+#endif
+
+// How often to check tripwires from the main loop.
+#ifndef MEMORY_TRIPWIRE_CHECK_INTERVAL_MS
+#define MEMORY_TRIPWIRE_CHECK_INTERVAL_MS 5000
+#endif
+
+// ============================================================================
+// Web Portal
+// ============================================================================
+// Max JSON body size accepted by /api/config.
+#ifndef WEB_PORTAL_CONFIG_MAX_JSON_BYTES
+#define WEB_PORTAL_CONFIG_MAX_JSON_BYTES 4096
+#endif
+
+// Timeout for an incomplete /api/config upload (ms) before freeing the buffer.
+#ifndef WEB_PORTAL_CONFIG_BODY_TIMEOUT_MS
+#define WEB_PORTAL_CONFIG_BODY_TIMEOUT_MS 5000
 #endif
 
 // Select the touch HAL backend (one of the TOUCH_DRIVER_* constants).

@@ -112,6 +112,34 @@
                 </div>
             </section>
 
+            <!-- Security Section (full-width) -->
+            <section class="section" id="security-section">
+                <h2>🔒 Security (Optional)</h2>
+                <div class="form-group">
+                    <label for="basic_auth_enabled">
+                        <input type="checkbox" id="basic_auth_enabled" name="basic_auth_enabled" style="margin-right: 8px;">
+                        Enable HTTP Basic Auth (STA mode only)
+                    </label>
+                    <small>
+                        When enabled, the web portal and all <code>/api/*</code> endpoints require a username and password in STA/full mode.
+                        AP/captive portal mode stays open for initial setup.
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label for="basic_auth_username">Username</label>
+                    <input type="text" id="basic_auth_username" name="basic_auth_username" maxlength="31" placeholder="e.g. admin">
+                    <small>Required when enabling Basic Auth</small>
+                </div>
+                <div class="form-group">
+                    <label for="basic_auth_password">Password</label>
+                    <input type="password" id="basic_auth_password" name="basic_auth_password" maxlength="63" placeholder="Optional">
+                    <small>Leave empty to keep existing password</small>
+                </div>
+                <div class="form-group">
+                    <small style="color:#b45309;">
+                        Warning: If you forget credentials, recovery requires reflashing the device.
+                    </small>
+                </div>
             </section>
 
             {{FOOTER}}

@@ -228,7 +228,7 @@ ESPPanel_ST77916_Driver::~ESPPanel_ST77916_Driver() {
 }
 
 void ESPPanel_ST77916_Driver::init() {
-    Logger.logLine("ESP_Panel: Initializing ST77916 QSPI display");
+    LOGI("ESP_Panel", "Initializing ST77916 QSPI display");
 
     // Backlight PWM (LEDC), mirrored from sample.
     ledc_timer_config_t ledc_timer = {
@@ -271,9 +271,21 @@ void ESPPanel_ST77916_Driver::init() {
     // Allocate a reusable swap buffer for optional byte swapping.
     // Size it to the LVGL draw buffer so we can swap+flush in one drawBitmap call.
     swapBufCapacityPixels = (uint32_t)LVGL_BUFFER_SIZE;
-    swapBuf = (uint16_t*)heap_caps_malloc(sizeof(uint16_t) * swapBufCapacityPixels, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (ESP_PANEL_SWAPBUF_PREFER_INTERNAL) {
+        swapBuf = (uint16_t*)heap_caps_malloc(sizeof(uint16_t) * swapBufCapacityPixels, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (!swapBuf) {
+            LOGW("ESP_Panel", "swapBuf internal alloc failed, trying PSRAM...");
+            swapBuf = (uint16_t*)heap_caps_malloc(sizeof(uint16_t) * swapBufCapacityPixels, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        }
+    } else {
+        swapBuf = (uint16_t*)heap_caps_malloc(sizeof(uint16_t) * swapBufCapacityPixels, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!swapBuf) {
+            LOGW("ESP_Panel", "swapBuf PSRAM alloc failed, trying internal...");
+            swapBuf = (uint16_t*)heap_caps_malloc(sizeof(uint16_t) * swapBufCapacityPixels, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        }
+    }
 
-    Logger.logLine("ESP_Panel: Display initialized");
+    LOGI("ESP_Panel", "Display initialized");
 }
 
 void ESPPanel_ST77916_Driver::setRotation(uint8_t rotation) {
@@ -356,7 +368,9 @@ void ESPPanel_ST77916_Driver::pushColors(uint16_t* data, uint32_t len, bool swap
     // The ESP_Panel API expects a byte pointer.
     // If swap_bytes is requested, swap into a contiguous buffer and flush once.
     if (!swap_bytes || !swapBuf || swapBufCapacityPixels < pixelCount) {
-        lcd->drawBitmap(currentX, currentY, currentW, currentH, (const uint8_t*)data);
+        // drawBitmap() is non-blocking for most buses; LVGL requires that flush only completes
+        // once panel IO finishes, otherwise it may reuse/overwrite the draw buffer too early.
+        (void)lcd->drawBitmapWaitUntilFinish(currentX, currentY, currentW, currentH, (const uint8_t*)data, 1000);
         return;
     }
 
@@ -364,5 +378,5 @@ void ESPPanel_ST77916_Driver::pushColors(uint16_t* data, uint32_t len, bool swap
         uint16_t v = data[i];
         swapBuf[i] = (uint16_t)((v << 8) | (v >> 8));
     }
-    lcd->drawBitmap(currentX, currentY, currentW, currentH, (const uint8_t*)swapBuf);
+    (void)lcd->drawBitmapWaitUntilFinish(currentX, currentY, currentW, currentH, (const uint8_t*)swapBuf, 1000);
 }

@@ -132,9 +132,14 @@ static void* alloc_any_8bit(size_t bytes) {
     if (bytes == 0) return nullptr;
 
 #if SOC_SPIRAM_SUPPORTED
-    void* p = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM);
-    if (p) return p;
+    if (heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0) {
+        void* p = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (p) return p;
+    }
 #endif
+
+    void* p = heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (p) return p;
 
     return heap_caps_malloc(bytes, MALLOC_CAP_8BIT);
 }
@@ -163,7 +168,18 @@ bool lvgl_jpeg_decode_to_rgb565(
     // TJpgDec work area.
     static const size_t kWorkSize = 4096;
     bool work_is_caps = true;
-    void* work = heap_caps_malloc(kWorkSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+
+    void* work = nullptr;
+
+#if SOC_SPIRAM_SUPPORTED
+    if (heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0) {
+        work = heap_caps_malloc(kWorkSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    }
+#endif
+
+    if (!work) {
+        work = heap_caps_malloc(kWorkSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
     if (!work) {
         work_is_caps = false;
         work = malloc(kWorkSize);

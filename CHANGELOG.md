@@ -7,20 +7,377 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.0.0] - 2026-01-01
+## [Unreleased]
+
+## [0.0.41] - 2026-01-17
 
 ### Added
-- Web portal with a modern, responsive UI for device setup and configuration
-- Captive portal AP mode for first-time Wi‑Fi setup, with a Network page for SSID/password + device settings
-- Firmware update page with OTA update support and factory reset
-- On-device UI (LVGL) with a default Energy Monitor screen showing Solar / Home / Grid power
-- MQTT integration to subscribe to Solar and Grid topics, with flexible payload parsing (number or JSON value path)
-- Configurable Energy Monitor settings in the portal:
-  - Per-category bar max (kW)
-  - Per-category color + threshold mapping (including signed thresholds for Grid)
-- Save-without-reboot support for MQTT-related config changes (applies after saving)
+- OTA download retry with fresh connections plus richer failure logging (HTTP error string, WiFi status/RSSI)
 
-[1.0.0]: https://github.com/jantielens/esp32-cyd-energymon/releases/tag/v1.0.0
+## [0.0.40] - 2026-01-17
+
+### Added
+- GitHub Pages OTA manifests (`site/ota/<board>.json`) with size + sha256 metadata
+- GitHub Pages updater flow that detects device board via `/api/info` and triggers OTA
+- Wi-Fi update UX separation in the installer (dedicated device update panel)
+- CORS handling for OTA API endpoints (restricted to GitHub Pages origin)
+
+### Changed
+- Firmware page now links to the GitHub Pages updater (replaces GitHub Releases OTA UI)
+- OTA update API now accepts a direct firmware URL payload
+- Repo slug header generated for GitHub Pages URL construction
+
+## [0.0.39] - 2026-01-16
+
+### Changed
+- Logging: replace nested LogManager with flat LOGx macros (single-line, timestamped)
+
+## [0.0.38] - 2026-01-16
+
+### Changed
+- Telemetry: move the cpu monitor FreeRTOS task stack to PSRAM on PSRAM-capable targets to free internal heap
+- Build: make TFT_eSPI configuration reproducible in clean/CI builds via per-board `User_Setup.h` support (fixes CYD v2 white screen when flashed from web installer)
+
+## [0.0.37] - 2026-01-15
+
+### Added
+- Web API: optional device-side health history endpoint `GET /api/health/history` for sparklines
+- Health history: monotonic `uptime_ms` array to correlate samples with logs
+- Logging: prefix all log lines with a monotonic `millis()` timestamp (e.g. `[123456ms] ...`)
+
+### Changed
+- Web portal: uses device-side history when available; falls back to point-in-time fields when unavailable
+- Web API: `GET /api/info` advertises health history availability and parameters
+- MQTT: `devices/<sanitized>/health/state` no longer includes `mqtt_*` self-report fields (kept in `/api/health` only)
+- Home Assistant: expanded default MQTT discovery to cover more of the published health payload (adds `binary_sensor` discovery for boolean fields)
+
+### Documentation
+- Regenerated `docs/compile-time-flags.md`
+- Updated `docs/home-assistant-mqtt.md` to reflect current default discovery + payload fields
+
+## [0.0.36] - 2026-01-14
+
+### Added
+- Web portal: device health header badge with expandable overlay, sparklines, and hover tooltip
+- Web API: health widget tuning values exposed via `GET /api/info` (`health_poll_interval_ms`, `health_history_seconds`)
+- Health telemetry: filesystem health reporting that is always present in the payload (nullable when no partition / not mounted)
+- Display telemetry: performance stats (FPS + LVGL timer/present timings)
+
+### Changed
+- Health sampling: min/max window stats are now multi-client safe (not reset by `/api/health` requests)
+- Telemetry robustness: CPU usage is nullable when runtime stats are unavailable; health payload includes internal-heap/PSRAM fragmentation and largest-block metrics
+
+### Fixed
+- Web portal header badges: `/api/info` JSON formatting regression could leave placeholders like `Firmware v?.?.?`
+- Health overlay: ensure the instantaneous request-time value is always within the returned min/max band
+
+### Documentation
+- Updated `docs/web-portal.md` to reflect the current `/api/health` fields and window semantics
+
+## [0.0.35] - 2026-01-13
+
+### Added
+- Memory telemetry: unified heap/internal/PSRAM snapshots and a low-memory tripwire with per-task stack watermark dump
+- PSRAM-preferring ArduinoJson allocator for large documents (PSRAM-first with internal fallback)
+
+### Changed
+- Web portal: modularized route wiring and handlers into focused portal modules
+- Web API: stream heavy JSON endpoints using chunked responses (health, config, firmware) and centralized JSON response helpers
+- Display: defer LVGL/screen updates to the LVGL task to avoid cross-task LVGL calls
+
+### Fixed
+- Web portal: route ordering and OTA gating hardening
+- CI: fix YAML indentation regression in `.github/workflows/release.yml`
+
+## [0.0.34] - 2026-01-13
+
+### Added
+- ESP Web Tools installer now flashes multi-part images (bootloader/partitions/boot_app0/app) and derives the app offset from `app.ino.partitions.bin`
+- Releases now include `*-bootloader.bin`, `*-partitions.bin`, and `*-boot_app0.bin` assets to support browser installs on custom partition layouts
+
+### Changed
+- `upload.sh --full` now uses multi-part flashing by default (preserves NVS); `--merged` is available for legacy merged-at-0x0 flashing
+
+## [0.0.33] - 2026-01-13
+
+### Fixed
+- ESP-Panel CST816S touch init stability: avoid enabling the interrupt handler during boot (polling is used via `readPoints()`)
+- ESP-Panel ST77916 LVGL flush stability: wait for panel IO to complete before returning (prevents draw buffer reuse too early)
+
+## [0.0.32] - 2026-01-12
+
+### Added
+- `upload.sh` now supports explicit flash modes: `--full` (bootloader + partitions + boot_app0 + app at standard offsets) and `--app-only` (flash only the app at the correct partition offset)
+- `upload.sh` supports `--erase-nvs` (reset config) and `--erase-flash` (destructive)
+
+### Changed
+- Boards using `PartitionScheme=...` default to `--full` flashing to ensure partition changes are applied correctly
+- `tools/install-custom-partitions.sh` installs all repo partition CSVs and registers only the repo-provided schemes actively used by configured boards (idempotent)
+
+### Fixed
+- `upload.sh --full` no longer flashes the merged image at `0x0` (which can overwrite NVS); it now flashes components at the correct offsets and preserves NVS by default
+- Serial port auto-detection now handles `/dev/ttyUSB*` and `/dev/ttyACM*` (not just `...0`)
+- Updated esptool invocation to match newer ESP32 Arduino cores (`esptool` binary + `write-flash`)
+
+## [0.0.31] - 2026-01-12
+
+### Added
+- `upload.sh` now supports explicit flash modes: `--full` (merged image at 0x0) and `--app-only` (flash only the app at the correct partition offset)
+- `upload.sh` supports `--erase-nvs` (reset config) and `--erase-flash` (destructive)
+
+### Changed
+- Boards using `PartitionScheme=...` default to `--full` flashing to ensure partition changes are applied correctly
+- `tools/install-custom-partitions.sh` installs all repo partition CSVs and registers only the repo-provided schemes actively used by configured boards (idempotent)
+
+### Fixed
+- Serial port auto-detection now handles `/dev/ttyUSB*` and `/dev/ttyACM*` (not just `...0`)
+- Updated esptool invocation to match newer ESP32 Arduino cores (`esptool` binary + `write-flash`)
+
+## [0.0.30] - 2026-01-12
+
+### Added
+- One-shot AsyncTCP task stack watermark logging after web server start (helps validate stack headroom)
+
+### Changed
+- Build propagates `CONFIG_ASYNC_TCP_STACK_SIZE` from per-board overrides into global C/C++ compile flags so separately-built libraries (AsyncTCP) see it
+
+### Fixed
+- Avoid early boot logging when USB CDC is enabled but not ready
+
+### Documentation
+- Documented board override propagation into library builds in `docs/scripts.md` and `docs/compile-time-flags.md`
+
+## [0.0.29] - 2026-01-04
+
+### Added
+- Optional `config.project.sh` overlay for project-specific branding/boards (helps reduce merge conflicts when pulling template updates)
+
+### Documentation
+- Documented a low-friction "upstream remote + merge" workflow for template-based projects
+
+## [0.0.28] - 2026-01-03
+
+### Added
+- Optional HTTP Basic Authentication for the device web portal (STA/full mode only)
+  - Protects portal HTML pages and all `/api/*` endpoints
+  - Configurable via the Network page and persisted in NVS
+  - Image API endpoints are also protected when enabled
+
+### Documentation
+- Updated `README.md` and `docs/web-portal.md` with Basic Auth behavior and API examples
+
+## [0.0.27] - 2026-01-03
+
+### Added
+- Device-side firmware online update from GitHub Releases (Firmware page → “Online Update (GitHub)”, stable releases only)
+  - Board-specific app-only asset selection: `<PROJECT_NAME>-<board>-vX.Y.Z.bin`
+  - New APIs: `GET /api/firmware/latest`, `POST /api/firmware/update`, `GET /api/firmware/update/status`
+
+### Changed
+- Build embeds board name as `BUILD_BOARD_NAME` and auto-detects GitHub repo from `git remote origin` to enable online updates
+
+### Fixed
+- Improve GitHub API JSON parsing reliability for `/api/firmware/latest`
+
+---
+
+## [0.0.26] - 2026-01-03
+
+### Added
+- GitHub Pages web firmware installer powered by ESP Web Tools (generated by `tools/build-esp-web-tools-site.sh`)
+- Pages deployment workflow that runs on stable release publish (`.github/workflows/pages-from-release.yml`)
+
+### Changed
+- Release workflow now publishes merged firmware binaries (`*-merged.bin`) suitable for browser flashing at offset `0`
+- Pages deployment now runs from the default branch context (avoids tag-based deploy restrictions on the `github-pages` environment)
+
+## [0.0.25] - 2025-12-26
+
+### Added
+- Compile-time flags reporting tool (`tools/compile_flags_report.py`) that generates `docs/compile-time-flags.md` (flag list, board matrices, and per-file preprocessor usage map)
+- Build-time “active flags” summary printed during `./build.sh` per board
+
+### Changed
+- CI board build matrix ordering is now deterministic (sorted board names)
+- Compile-time flags documentation generation is enforced in CI (fails when generated doc differs)
+
+## [0.0.24] - 2025-12-24
+
+### Added
+- Screen saver / burn-in prevention (v1): inactivity-based backlight fade-out and wake fade-in
+- Display control API endpoints: `GET /api/display/sleep`, `POST /api/display/sleep`, `POST /api/display/wake`, `POST /api/display/activity`, `PUT /api/display/brightness`
+
+### Changed
+- Touch input now resets the screen saver idle timer during normal UI interaction
+- Screen saver behavior suppresses touch input while dimming/asleep/fading in to avoid wake gestures clicking through into LVGL navigation
+
+### Fixed
+- Avoid potential boot hangs by deferring LVGL touch input device registration and retrying later
+
+### Documentation
+- Updated `README.md`, `docs/web-portal.md`, and `docs/display-touch-architecture.md` for screen saver config and APIs
+
+## [0.0.23] - 2025-12-23
+
+### Changed
+- WiFi station mode disables power-save sleep to improve stability/latency
+
+### Fixed
+- WiFi connection now prefers the strongest AP when multiple BSSIDs share the same SSID (Fixes #25)
+- Web portal reboot flow no longer triggers a double reboot; reboot overlay is more robust, including AP/core-mode guidance (Fixes #27)
+
+---
+
+## [0.0.22] - 2025-12-23
+
+### Added
+- LVGL PNG asset pipeline: `assets/png/*.png` → generated `src/app/png_assets.cpp/h` via `tools/png2lvgl_assets.py` (used by the splash screen)
+
+---
+
+## [0.0.21] - 2025-12-23
+
+### Added
+- `POST /api/display/image_url` to queue HTTP/HTTPS JPEG downloads for display (download+decode runs later in the main loop)
+- Optional LVGL image screen (`lvgl_image`) when `HAS_IMAGE_API` is enabled
+- Optional `LV_MEM_CUSTOM` LVGL allocator backed by `heap_caps_*` allocators (helps reduce internal heap fragmentation)
+- `tools/portal_stress_test.py` for repeatable portal/API/image stress testing
+
+### Changed
+- Image API HTTP(S) download path is more robust (honors timeouts, reduces stack usage during header parsing)
+
+### Fixed
+- Hardened Image API request handling (abort-safe behavior; cleanup for interrupted/stuck uploads)
+
+### Documentation
+- Documented and logged a security warning for insecure TLS mode (`WiFiClientSecure::setInsecure()`)
+
+### Removed
+- Removed internal working doc `docs/memory-optimizations.md`
+
+## [0.0.20] - 2025-12-21
+
+### Added
+- **Display + LVGL framework**
+  - `DisplayDriver` / `DisplayManager` HAL with LVGL integration and render-mode support (`Direct` vs `Buffered`)
+  - LVGL v8.4 screen framework with multiple screens (splash, info, test, direct image)
+  - Deferred screen switching to avoid FPS drops during transitions
+  - Optional LVGL performance monitor overlay
+- **Touch input support**
+  - `TouchDriver` / `TouchManager` HAL with LVGL input device registration and optional calibration
+  - Board-configurable touch support via `HAS_TOUCH`
+- **Display/touch drivers and backends**
+  - TFT_eSPI display driver
+  - Native SPI ST7789V2 display driver
+  - Arduino_GFX display backend
+  - ESP-Panel based display/touch drivers (where applicable)
+  - XPT2046 resistive touch driver
+  - AXS15231B touch backend wrapper (vendored implementation scoped under the driver)
+- **Board driver selection and documentation**
+  - Board overrides updated so boards explicitly select display/touch backends (including `cyd-v2`, `jc3248w535`, `jc3636w518`, and ESP32-C3 variants)
+  - Board→driver documentation and generator (`src/app/drivers/README.md` + `tools/generate-board-driver-table.py`)
+- **Image upload/display pipeline + tooling**
+  - JPEG upload + decode flow (`image_api`) with JPEG preflight validation
+  - Strip decoding and batching; async decode with screen preserved while processing
+  - Tools: `tools/upload_image.py` and `tools/camera_to_esp32.py`
+- **Docs**
+  - New architecture docs: `docs/display-touch-architecture.md`, `docs/arduino-gfx-unification.md`
+
+### Changed
+- Build tooling is more robust (detects and flags previously-silent build failures)
+- Telemetry and web portal behavior updated (including CPU usage monitoring with min/max tracking)
+
+### Documentation
+- Updated `README.md` and developer docs to reflect the new display/touch system and board targets
+- Updated `docs/web-portal.md`, `docs/scripts.md`, and `docs/build-and-release-process.md`
+
+---
+
+## [0.0.19] - 2025-12-17
+
+### Fixed
+- Fixed board macro sanitization in build system to generate valid C++ identifiers
+  - Board names with special characters (hyphens, dots, etc.) now properly converted to underscores
+  - Macro pattern: `BOARD_<BOARDNAME>` where `<BOARDNAME>` is alphanumeric + underscore only
+  - Example: `cyd-v2` → `BOARD_CYD_V2`, `board.name` → `BOARD_BOARD_NAME`
+  - Resolves compilation errors when using `#if defined(BOARD_xxx)` with hyphenated board names
+- Updated documentation to explain board macro sanitization behavior
+
+---
+
+## [0.0.18] - 2025-12-17
+
+### Changed
+- **BREAKING**: Reversed FQBN_TARGETS associative array mapping in `config.sh` (Resolves #21)
+  - **Old format**: `["FQBN"]="board-name"` → **New format**: `["board-name"]="FQBN"`
+  - Board name is now the key, FQBN is the value
+  - Enables multiple board variants with the same FQBN (e.g., CYD display v2/v3)
+  - Simplifies helper functions (`get_fqbn_for_board()` is now direct array lookup)
+  - **Migration**: Swap keys and values in your `FQBN_TARGETS` array
+- Updated build scripts, CI/CD workflows, and documentation to use new mapping format
+
+---
+
+## [0.0.17] - 2025-12-16
+
+### Added
+- Optional custom partition scheme example for ESP32-C3 to increase OTA app space
+  - `partitions/partitions_ota_1_9mb.csv`
+  - Example board target using `PartitionScheme=ota_1_9mb`
+- Installer script to register custom partition schemes into the Arduino ESP32 core: `tools/install-custom-partitions.sh`
+- Custom partitions documentation: `partitions/README.md`
+
+### Changed
+- `setup.sh` now runs the custom partitions installer (when present)
+- CI workflows run the installer before compiling boards that use `PartitionScheme=...`
+
+## [0.0.16] - 2025-12-16
+
+### Added
+- MQTT + Home Assistant integration (PubSubClient)
+  - Home Assistant MQTT Discovery for device telemetry
+  - Availability topic (LWT) and retained state publishing
+  - Single JSON state topic with per-entity `value_template`
+- MQTT settings in the Network page (host/port/credentials/publish interval)
+- New developer guide: `docs/home-assistant-mqtt.md`
+
+### Changed
+- Refactored health/telemetry internals to `device_telemetry` (used by `/api/health` and MQTT publishing)
+- `/api/info` now reports `has_mqtt` so the portal can hide MQTT settings for MQTT-disabled builds
+- Documentation updated to reflect built-in MQTT/HA support and optional configuration
+
+## [0.0.15] - 2025-12-16
+
+### Fixed
+- Web portal CSS now styles `input[type="number"]` fields consistently (Issue #16)
+
+## [0.0.14] - 2025-12-11
+
+### Fixed
+- **Board Override System**: Fixed include guard conflicts and circular dependencies (Issue #14)
+  - Renamed board-specific files from `board_config.h` → `board_overrides.h` to prevent naming conflicts
+  - Implemented two-phase include pattern: board overrides loaded first, then defaults with `#ifndef` guards
+  - Removed `#include_next` directive that caused infinite recursion errors
+  - Removed non-functional `board_config.cpp` files (Arduino build system only compiles sketch directory)
+  - Board overrides now working correctly for compile-time configuration
+
+### Changed
+- **Documentation**: Complete rewrite of board configuration documentation
+  - Added real-world examples: buttons, battery monitors, different display drivers
+  - Clarified that board overrides are for compile-time defines only
+  - Documented conditional compilation pattern with `#if HAS_xxx` in application code
+  - Updated README.md, copilot-instructions.md, and build-and-release-process.md
+- **Board Override Pattern**: System now uses conditional compilation in main app instead of separate implementation files
+  - Cleaner architecture with zero runtime overhead
+  - All board-specific logic uses `#if` guards in `app.ino`
+  - Compiler automatically eliminates unused code per board
+
+### Removed
+- `src/boards/<board>/board_config.cpp` - Not compiled by Arduino build system, was misleading
+
+---
+
+## [0.0.13] - 2025-12-11
 
 ### Added
 - **Multi-Page Web Portal**: Refactored single-page portal to multi-page architecture

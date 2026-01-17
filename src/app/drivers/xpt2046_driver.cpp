@@ -18,13 +18,13 @@ XPT2046_Driver::~XPT2046_Driver() {
 }
 
 void XPT2046_Driver::init() {
-    Logger.logLinef("XPT2046: Initializing (CS=%d, IRQ=%d)", cs_pin, irq_pin);
+    LOGI("XPT2046", "Initializing (CS=%d, IRQ=%d)", cs_pin, irq_pin);
     
     // Configure SPI bus for touch controller (CYD uses separate VSPI bus)
     #if defined(TOUCH_MOSI) && defined(TOUCH_MISO) && defined(TOUCH_SCLK)
     touchSPI = new SPIClass(VSPI);
     touchSPI->begin(TOUCH_SCLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
-    Logger.logLinef("XPT2046: SPI bus configured (MOSI=%d, MISO=%d, CLK=%d, CS=%d)", 
+    LOGI("XPT2046", "SPI bus configured (MOSI=%d, MISO=%d, CLK=%d, CS=%d)", 
                    TOUCH_MOSI, TOUCH_MISO, TOUCH_SCLK, TOUCH_CS);
     
     // Initialize XPT2046 touchscreen library with custom SPI
@@ -36,9 +36,9 @@ void XPT2046_Driver::init() {
     
     ts.setRotation(rotation);
     
-    Logger.logLinef("XPT2046: Calibration (%d,%d) to (%d,%d), rotation=%d", 
+    LOGI("XPT2046", "Calibration (%d,%d) to (%d,%d), rotation=%d", 
                    cal_x_min, cal_y_min, cal_x_max, cal_y_max, rotation);
-    Logger.logLine("XPT2046: Initialization complete");
+    LOGI("XPT2046", "Initialization complete");
 }
 
 bool XPT2046_Driver::isTouched() {
@@ -89,7 +89,7 @@ void XPT2046_Driver::setCalibration(uint16_t x_min, uint16_t x_max,
     cal_y_min = y_min;
     cal_y_max = y_max;
     
-    Logger.logLinef("XPT2046: Calibration updated (%d,%d) to (%d,%d)", 
+    LOGI("XPT2046", "Calibration updated (%d,%d) to (%d,%d)", 
                    cal_x_min, cal_y_min, cal_x_max, cal_y_max);
 }
 
@@ -97,5 +97,5 @@ void XPT2046_Driver::setRotation(uint8_t rot) {
     rotation = rot;
     ts.setRotation(rotation);
     
-    Logger.logLinef("XPT2046: Rotation set to %d", rotation);
+    LOGI("XPT2046", "Rotation set to %d", rotation);
 }

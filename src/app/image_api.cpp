@@ -89,6 +89,7 @@ static size_t image_api_no_psram_effective_headroom_bytes(size_t base_headroom, 
 
 static ImageApiConfig g_cfg;
 static ImageApiBackend g_backend = {nullptr, nullptr, nullptr};
+static bool (*g_auth_gate)(AsyncWebServerRequest* request) = nullptr;
 
 // Image upload buffer (allocated temporarily during upload)
 static uint8_t* image_upload_buffer = nullptr;
@@ -341,9 +342,9 @@ static bool download_jpeg_to_buffer(
         static bool warned_insecure_tls = false;
         if (!warned_insecure_tls) {
             warned_insecure_tls = true;
-            Logger.logMessage(
+            LOGW(
                 "ImageApi",
-                "WARNING: HTTPS image_url uses insecure TLS (no certificate validation). A MITM can spoof content. Use only on trusted networks, or implement CA verification/pinning."
+                "HTTPS image_url uses insecure TLS (no certificate validation). A MITM can spoof content. Use only on trusted networks, or implement CA verification/pinning."
             );
         }
         client_tls.setInsecure();
@@ -508,6 +509,7 @@ static bool download_jpeg_to_buffer(
 
 // POST /api/display/image - Upload and display JPEG image (deferred decode)
 static void handleImageUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+    if (g_auth_gate && !g_auth_gate(request)) return;
     (void)filename;
 
     // First chunk - initialize upload
@@ -518,18 +520,18 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
             return;
         }
 
-        Logger.logBegin("Image Upload");
-        Logger.logLinef("Total size: %u bytes", request->contentLength());
+        LOGI("Upload", "Start");
+        LOGI("Upload", "Total size: %u bytes", request->contentLength());
 
         image_upload_timeout_ms = parse_timeout_ms(request);
         image_upload_start_ms = millis();
-        Logger.logLinef("Timeout: %lu ms", image_upload_timeout_ms);
+        LOGI("Upload", "Timeout: %lu ms", image_upload_timeout_ms);
 
         device_telemetry_log_memory_snapshot("img pre-clear");
 
         // Free any pending image buffer to make room for new upload
         if (pending_image_op.buffer) {
-            Logger.logMessage("Upload", "Freeing pending image buffer");
+            LOGI("Upload", "Freeing pending image buffer");
             image_api_free((void*)pending_image_op.buffer);
             pending_image_op.buffer = nullptr;
             pending_image_op.size = 0;
@@ -540,7 +542,7 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
         // Check file size
         size_t total_size = request->contentLength();
         if (total_size > g_cfg.max_image_size_bytes) {
-            Logger.logEnd("ERROR: Image too large");
+            LOGE("Upload", "Image too large");
             request->send(400, "application/json", "{\"success\":false,\"message\":\"Image too large\"}");
             return;
         }
@@ -570,8 +572,9 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
         if (has_psram) {
             const size_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
             if (internal_free < g_cfg.decode_headroom_bytes) {
-            Logger.logLinef(
-                "ERROR: Insufficient internal memory for decode headroom (need %u, have %u)",
+            LOGE(
+                "Upload",
+                "Insufficient internal memory for decode headroom (need %u, have %u)",
                 (unsigned)g_cfg.decode_headroom_bytes,
                 (unsigned)internal_free
             );
@@ -584,7 +587,7 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
                 (unsigned)(g_cfg.decode_headroom_bytes / 1024),
                 (unsigned)(internal_free / 1024)
             );
-            Logger.logEnd();
+            LOGE("Upload", "Insufficient internal memory");
             request->send(507, "application/json", error_msg);
             return;
             }
@@ -595,8 +598,9 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
             const size_t heap8_largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
             const size_t required_heap8 = total_size + g_cfg.decode_headroom_bytes;
             if (heap8_free < required_heap8 || heap8_largest < total_size) {
-                Logger.logLinef(
-                    "ERROR: Insufficient memory (need %u heap8, have %u; largest %u; internal_free %u; psram_free %u largest %u)",
+                LOGE(
+                    "Upload",
+                    "Insufficient memory (need %u heap8, have %u; largest %u; internal_free %u; psram_free %u largest %u)",
                     (unsigned)required_heap8,
                     (unsigned)heap8_free,
                     (unsigned)heap8_largest,
@@ -614,7 +618,7 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
                     (unsigned)(heap8_free / 1024),
                     (unsigned)(heap8_largest / 1024)
                 );
-                Logger.logEnd();
+                LOGE("Upload", "Insufficient memory for upload");
                 request->send(507, "application/json", error_msg);
                 return;
             }
@@ -626,8 +630,9 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
             const size_t headroom = image_api_no_psram_effective_headroom_bytes(g_cfg.decode_headroom_bytes, free_heap, largest);
             const size_t required = total_size + headroom;
             if (free_heap < required || largest < total_size) {
-                Logger.logLinef(
-                    "ERROR: Insufficient memory (need %u heap, have %u; largest %u)",
+                LOGE(
+                    "Upload",
+                    "Insufficient memory (need %u heap, have %u; largest %u)",
                     (unsigned)required,
                     (unsigned)free_heap,
                     (unsigned)largest
@@ -642,7 +647,7 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
                     (unsigned)(free_heap / 1024),
                     (unsigned)(largest / 1024)
                 );
-                Logger.logEnd();
+                LOGE("Upload", "Insufficient memory");
                 request->send(507, "application/json", error_msg);
                 return;
             }
@@ -654,8 +659,9 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
         const size_t headroom = image_api_no_psram_effective_headroom_bytes(g_cfg.decode_headroom_bytes, free_heap, largest);
         const size_t required = total_size + headroom;
         if (free_heap < required || largest < total_size) {
-            Logger.logLinef(
-                "ERROR: Insufficient memory (need %u heap, have %u; largest %u)",
+            LOGE(
+                "Upload",
+                "Insufficient memory (need %u heap, have %u; largest %u)",
                 (unsigned)required,
                 (unsigned)free_heap,
                 (unsigned)largest
@@ -670,7 +676,7 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
                 (unsigned)(free_heap / 1024),
                 (unsigned)(largest / 1024)
             );
-            Logger.logEnd();
+            LOGE("Upload", "Insufficient memory");
             request->send(507, "application/json", error_msg);
             return;
         }
@@ -680,7 +686,7 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
         device_telemetry_log_memory_snapshot("img pre-alloc");
         image_upload_buffer = (uint8_t*)image_api_alloc(total_size);
         if (!image_upload_buffer) {
-            Logger.logEnd("ERROR: Memory allocation failed");
+            LOGE("Upload", "Memory allocation failed");
             device_telemetry_log_memory_snapshot("img alloc-fail");
             request->send(507, "application/json", "{\"success\":false,\"message\":\"Memory allocation failed\"}");
             return;
@@ -699,7 +705,7 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
         // Log progress every 10KB
         static size_t last_logged_size = 0;
         if (image_upload_size - last_logged_size >= 10240) {
-            Logger.logLinef("Received: %u bytes", image_upload_size);
+            LOGI("Upload", "Received: %u bytes", image_upload_size);
             last_logged_size = image_upload_size;
         }
     }
@@ -707,13 +713,13 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
     // Final chunk - validate and queue for display
     if (final) {
         if (image_upload_buffer && image_upload_size > 0 && upload_state == UPLOAD_IN_PROGRESS) {
-            Logger.logLinef("Upload complete: %u bytes", image_upload_size);
+            LOGI("Upload", "Upload complete: %u bytes", image_upload_size);
 
             if (!is_jpeg_magic(image_upload_buffer, image_upload_size)) {
-                Logger.logLinef("Invalid header: %02X %02X %02X %02X",
+                LOGE("Upload", "Invalid header: %02X %02X %02X %02X",
                                 image_upload_buffer[0], image_upload_buffer[1],
                                 image_upload_buffer[2], image_upload_buffer[3]);
-                Logger.logEnd("ERROR: Not a valid JPEG file");
+                LOGE("Upload", "Not a valid JPEG file");
                 image_api_free(image_upload_buffer);
                 image_upload_buffer = nullptr;
                 image_upload_size = 0;
@@ -731,8 +737,7 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
                     g_cfg.lcd_height,
                     preflight_err,
                     sizeof(preflight_err))) {
-                Logger.logLinef("ERROR: JPEG preflight failed: %s", preflight_err);
-                Logger.logEnd();
+                LOGE("Upload", "JPEG preflight failed: %s", preflight_err);
                 image_api_free(image_upload_buffer);
                 image_upload_buffer = nullptr;
                 image_upload_size = 0;
@@ -746,7 +751,7 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
 
             // Queue image for display by main loop (deferred operation)
             if (pending_image_op.buffer) {
-                Logger.logMessage("Upload", "Replacing pending image");
+                LOGI("Upload", "Replacing pending image");
                 image_api_free((void*)pending_image_op.buffer);
             }
 
@@ -762,7 +767,7 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
             image_upload_buffer = nullptr;
             image_upload_size = 0;
 
-            Logger.logEnd("Image queued for display");
+            LOGI("Upload", "Image queued for display");
 
             char response_msg[160];
             snprintf(response_msg, sizeof(response_msg),
@@ -770,7 +775,7 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
                      (unsigned long)(image_upload_timeout_ms / 1000));
             request->send(200, "application/json", response_msg);
         } else {
-            Logger.logEnd("ERROR: No data received");
+            LOGE("Upload", "No data received");
             upload_state = UPLOAD_IDLE;
             request->send(400, "application/json", "{\"success\":false,\"message\":\"No data received\"}");
         }
@@ -779,7 +784,8 @@ static void handleImageUpload(AsyncWebServerRequest *request, String filename, s
 
 // DELETE /api/display/image - Manually dismiss image
 static void handleImageDelete(AsyncWebServerRequest *request) {
-    Logger.logMessage("Portal", "Image dismiss requested");
+    if (g_auth_gate && !g_auth_gate(request)) return;
+    LOGI("Portal", "Image dismiss requested");
 
     if (pending_image_op.buffer) {
         image_api_free((void*)pending_image_op.buffer);
@@ -796,6 +802,7 @@ static void handleImageDelete(AsyncWebServerRequest *request) {
 // POST /api/display/image_url - Queue HTTP(S) JPEG download for display
 // Body: {"url":"https://example.com/image.jpg"}
 static void handleImageUrl(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+    if (g_auth_gate && !g_auth_gate(request)) return;
     // Only accept small JSON payloads.
     if (index == 0) {
         bool url_op_active = false;
@@ -893,6 +900,7 @@ static void handleImageUrl(AsyncWebServerRequest *request, uint8_t *data, size_t
 // POST /api/display/image/strips?strip_index=N&strip_count=T&width=W&height=H[&timeout=seconds]
 // Upload a single JPEG strip; decode is deferred to the main loop.
 static void handleStripUpload(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+    if (g_auth_gate && !g_auth_gate(request)) return;
     // Validate required params
     if (index == 0) {
         const bool has_required =
@@ -930,19 +938,18 @@ static void handleStripUpload(AsyncWebServerRequest *request, uint8_t *data, siz
 
         // Only log first strip to reduce verbosity
         if (stripIndex == 0) {
-            Logger.logMessagef("Strip Mode", "Uploading %dx%d image (%d strips)", imageWidth, imageHeight, totalStrips);
+            LOGI("Strip", "Uploading %dx%d image (%d strips)", imageWidth, imageHeight, totalStrips);
             device_telemetry_log_memory_snapshot("strip pre-alloc");
         }
 
         if (stripIndex < 0 || stripIndex >= totalStrips) {
-            Logger.logEnd("ERROR: Invalid strip index");
+            LOGE("Strip", "Invalid strip index");
             request->send(400, "application/json", "{\"success\":false,\"message\":\"Invalid strip index\"}");
             return;
         }
 
         if (imageWidth <= 0 || imageHeight <= 0 || imageWidth > g_cfg.lcd_width || imageHeight > g_cfg.lcd_height) {
-            Logger.logLinef("ERROR: Invalid dimensions %dx%d", imageWidth, imageHeight);
-            Logger.logEnd();
+            LOGE("Strip", "Invalid dimensions %dx%d", imageWidth, imageHeight);
             request->send(400, "application/json", "{\"success\":false,\"message\":\"Invalid image dimensions\"}");
             return;
         }
@@ -954,9 +961,9 @@ static void handleStripUpload(AsyncWebServerRequest *request, uint8_t *data, siz
 
         current_strip_buffer = (uint8_t*)image_api_alloc(total);
         if (!current_strip_buffer) {
-            Logger.logLinef("ERROR: Out of memory (requested %u bytes, free heap: %u)", (unsigned)total, ESP.getFreeHeap());
+            LOGE("Strip", "Out of memory (requested %u bytes, free heap: %u)", (unsigned)total, ESP.getFreeHeap());
             device_telemetry_log_memory_snapshot("strip alloc-fail");
-            Logger.logEnd();
+            LOGE("Strip", "Strip alloc failed");
             request->send(507, "application/json", "{\"success\":false,\"message\":\"Out of memory\"}");
             return;
         }
@@ -976,7 +983,7 @@ static void handleStripUpload(AsyncWebServerRequest *request, uint8_t *data, siz
         if (current_strip_size != total) {
             image_api_free((void*)current_strip_buffer);
             current_strip_buffer = nullptr;
-            Logger.logEnd();
+            LOGE("Strip", "Incomplete upload");
             request->send(500, "application/json", "{\"success\":false,\"message\":\"Incomplete upload\"}");
             return;
         }
@@ -984,7 +991,7 @@ static void handleStripUpload(AsyncWebServerRequest *request, uint8_t *data, siz
         if (!is_jpeg_magic(current_strip_buffer, current_strip_size)) {
             image_api_free((void*)current_strip_buffer);
             current_strip_buffer = nullptr;
-            Logger.logEnd();
+            LOGE("Strip", "Invalid JPEG data");
             request->send(400, "application/json", "{\"success\":false,\"message\":\"Invalid JPEG data\"}");
             return;
         }
@@ -1000,10 +1007,10 @@ static void handleStripUpload(AsyncWebServerRequest *request, uint8_t *data, siz
                 g_cfg.lcd_height,
                 preflight_err,
                 sizeof(preflight_err))) {
-            Logger.logLinef("ERROR: JPEG fragment preflight failed: %s", preflight_err);
+            LOGE("Strip", "JPEG fragment preflight failed: %s", preflight_err);
             image_api_free((void*)current_strip_buffer);
             current_strip_buffer = nullptr;
-            Logger.logEnd();
+            LOGE("Strip", "JPEG fragment preflight failed");
 
             char resp[256];
             snprintf(resp, sizeof(resp), "{\"success\":false,\"message\":\"%s\"}", preflight_err);
@@ -1016,7 +1023,7 @@ static void handleStripUpload(AsyncWebServerRequest *request, uint8_t *data, siz
         if (upload_state == UPLOAD_IN_PROGRESS || upload_state == UPLOAD_READY_TO_DISPLAY || pending_strip_op.buffer) {
             image_api_free((void*)current_strip_buffer);
             current_strip_buffer = nullptr;
-            Logger.logEnd();
+            LOGW("Strip", "Busy");
             request->send(409, "application/json", "{\"success\":false,\"message\":\"Busy\"}" );
             return;
         }
@@ -1038,8 +1045,7 @@ static void handleStripUpload(AsyncWebServerRequest *request, uint8_t *data, siz
         upload_state = UPLOAD_READY_TO_DISPLAY;
         pending_op_id++;
         
-        Logger.logMessagef("Strip", "Strip %d/%d queued for decode", stripIndex, totalStrips - 1);
-        Logger.logEnd();
+        LOGI("Strip", "Strip %d/%d queued for decode", stripIndex, totalStrips - 1);
 
         char response[160];
         snprintf(response, sizeof(response),
@@ -1081,12 +1087,15 @@ void image_api_init(const ImageApiConfig& cfg, const ImageApiBackend& backend) {
     image_upload_size = 0;
 }
 
-void image_api_register_routes(AsyncWebServer* server) {
+void image_api_register_routes(AsyncWebServer* server, bool (*auth_gate)(AsyncWebServerRequest* request)) {
+    g_auth_gate = auth_gate;
     // Register the more specific /strips endpoint before /image.
     server->on(
         "/api/display/image/strips",
         HTTP_POST,
-        [](AsyncWebServerRequest *request) {},
+        [](AsyncWebServerRequest *request) {
+            if (g_auth_gate && !g_auth_gate(request)) return;
+        },
         NULL,
         handleStripUpload
     );
@@ -1094,14 +1103,18 @@ void image_api_register_routes(AsyncWebServer* server) {
     server->on(
         "/api/display/image",
         HTTP_POST,
-        [](AsyncWebServerRequest *request) {},
+        [](AsyncWebServerRequest *request) {
+            if (g_auth_gate && !g_auth_gate(request)) return;
+        },
         handleImageUpload
     );
 
     server->on(
         "/api/display/image_url",
         HTTP_POST,
-        [](AsyncWebServerRequest *request) {},
+        [](AsyncWebServerRequest *request) {
+            if (g_auth_gate && !g_auth_gate(request)) return;
+        },
         NULL,
         handleImageUrl
     );
@@ -1120,7 +1133,7 @@ void image_api_process_pending(bool ota_in_progress) {
             const unsigned long elapsed = (unsigned long)(millis() - image_upload_start_ms);
             // Give the client a little extra beyond the configured display timeout.
             if (elapsed > (image_upload_timeout_ms + 3000UL)) {
-                Logger.logMessage("ImageApi", "WARNING: Aborting stuck image upload; freeing buffer");
+                LOGW("IMG", "Aborting stuck image upload; freeing buffer");
                 image_api_free((void*)image_upload_buffer);
                 image_upload_buffer = nullptr;
                 image_upload_size = 0;
@@ -1132,7 +1145,7 @@ void image_api_process_pending(bool ota_in_progress) {
         if (current_strip_buffer) {
             const unsigned long elapsed = (unsigned long)(millis() - strip_upload_last_activity_ms);
             if (elapsed > 3000UL) {
-                Logger.logMessage("ImageApi", "WARNING: Aborting stuck strip upload; freeing buffer");
+                LOGW("IMG", "Aborting stuck strip upload; freeing buffer");
                 image_api_free((void*)current_strip_buffer);
                 current_strip_buffer = nullptr;
                 current_strip_size = 0;
@@ -1167,7 +1180,7 @@ void image_api_process_pending(bool ota_in_progress) {
     portEXIT_CRITICAL(&pending_url_op_mux);
 
     if (has_url_op) {
-        Logger.logMessagef("Portal", "Downloading image URL (%s)", url_to_download);
+        LOGI("Portal", "Downloading image URL (%s)", url_to_download);
         device_telemetry_log_memory_snapshot("urlimg pre-download");
 
         upload_state = UPLOAD_IN_PROGRESS;
@@ -1182,7 +1195,7 @@ void image_api_process_pending(bool ota_in_progress) {
         device_telemetry_log_memory_snapshot("urlimg post-download");
 
         if (!ok) {
-            Logger.logMessagef("Portal", "ERROR: URL download failed: %s", err);
+            LOGE("Portal", "URL download failed: %s", err);
             device_telemetry_log_memory_snapshot("urlimg download-fail");
             upload_state = UPLOAD_IDLE;
             if (g_backend.hide_current_image) {
@@ -1223,7 +1236,7 @@ void image_api_process_pending(bool ota_in_progress) {
         const uint8_t strip_index = pending_strip_op.strip_index;
         const int total_strips = pending_strip_op.total_strips;
 
-        Logger.logMessagef("Portal", "Processing strip %d/%d (%u bytes)", strip_index, total_strips - 1, (unsigned)sz);
+        LOGI("Portal", "Processing strip %d/%d (%u bytes)", strip_index, total_strips - 1, (unsigned)sz);
 
         if (strip_index == 0) {
             device_telemetry_log_memory_snapshot("strip pre-decode");
@@ -1232,7 +1245,7 @@ void image_api_process_pending(bool ota_in_progress) {
         // Initialize strip session on first strip
         if (strip_index == 0) {
             if (!g_backend.start_strip_session) {
-                Logger.logMessage("Portal", "ERROR: No strip session handler");
+                LOGE("Portal", "No strip session handler");
                 if (g_backend.hide_current_image) {
                     g_backend.hide_current_image();
                 }
@@ -1244,7 +1257,7 @@ void image_api_process_pending(bool ota_in_progress) {
 
             if (!g_backend.start_strip_session(pending_strip_op.image_width, pending_strip_op.image_height, 
                                                 pending_strip_op.timeout_ms, pending_strip_op.start_time)) {
-                Logger.logMessage("Portal", "ERROR: Failed to init strip session");
+                LOGE("Portal", "Failed to init strip session");
                 if (g_backend.hide_current_image) {
                     g_backend.hide_current_image();
                 }
@@ -1279,13 +1292,13 @@ void image_api_process_pending(bool ota_in_progress) {
         upload_state = UPLOAD_IDLE;
 
         if (!success) {
-            Logger.logMessagef("Portal", "ERROR: Failed to decode strip %d", strip_index);
+            LOGE("Portal", "Failed to decode strip %d", strip_index);
             device_telemetry_log_memory_snapshot("strip decode-fail");
             if (g_backend.hide_current_image) {
                 g_backend.hide_current_image();
             }
         } else if (strip_index == total_strips - 1) {
-            Logger.logMessagef("Portal", "\u2713 All %d strips decoded", total_strips);
+            LOGI("Portal", "\u2713 All %d strips decoded", total_strips);
         }
         return;
     }
@@ -1295,7 +1308,7 @@ void image_api_process_pending(bool ota_in_progress) {
         const uint8_t* buf = pending_image_op.buffer;
         const size_t sz = pending_image_op.size;
 
-        Logger.logMessagef("Portal", "Processing pending image (%u bytes)", (unsigned)sz);
+        LOGI("Portal", "Processing pending image (%u bytes)", (unsigned)sz);
 
         device_telemetry_log_memory_snapshot("img pre-decode");
 
@@ -1303,7 +1316,7 @@ void image_api_process_pending(bool ota_in_progress) {
         // PoC: if the user is currently on the LVGL image screen, decode JPEG to RGB565 and
         // show via LVGL (lv_img) instead of direct LCD writes.
         const char* current_screen = display_manager_get_current_screen_id();
-        Logger.logMessagef("Portal", "Current screen: %s", current_screen ? current_screen : "(none)");
+        LOGI("Portal", "Current screen: %s", current_screen ? current_screen : "(none)");
         if (current_screen && strcmp(current_screen, "lvgl_image") == 0) {
             uint16_t* pixels = nullptr;
             int w = 0;
@@ -1314,7 +1327,7 @@ void image_api_process_pending(bool ota_in_progress) {
             // Decode without holding the LVGL mutex.
             const bool ok = lvgl_jpeg_decode_to_rgb565(buf, sz, &pixels, &w, &h, &scale_used, derr, sizeof(derr));
             if (!ok) {
-                Logger.logMessagef("Portal", "ERROR: LVGL JPEG decode failed: %s", derr);
+                LOGE("Portal", "LVGL JPEG decode failed: %s", derr);
                 device_telemetry_log_memory_snapshot("img lvgl-decode-fail");
 
                 image_api_free((void*)pending_image_op.buffer);
@@ -1339,9 +1352,9 @@ void image_api_process_pending(bool ota_in_progress) {
             const int div = (scale_used >= 0 && scale_used <= 7) ? (1 << scale_used) : 0;
             const double zoom = (double)200.0 / (double)((w > h) ? w : h);
             if (div) {
-                Logger.logMessagef(
+                LOGI(
                     "Portal",
-                    "LVGL img: decoded %dx%d (tjpgd scale %d (1/%d)) -> target 200x200 (zoom %.2fx)",
+                    "LVGL img: w=%d h=%d scale=%d div=%d zoom=%.2fx",
                     w,
                     h,
                     scale_used,
@@ -1349,9 +1362,9 @@ void image_api_process_pending(bool ota_in_progress) {
                     zoom
                 );
             } else {
-                Logger.logMessagef(
+                LOGI(
                     "Portal",
-                    "LVGL img: decoded %dx%d (tjpgd scale %d) -> target 200x200 (zoom %.2fx)",
+                    "LVGL img: w=%d h=%d scale=%d zoom=%.2fx",
                     w,
                     h,
                     scale_used,
@@ -1361,7 +1374,7 @@ void image_api_process_pending(bool ota_in_progress) {
 
             if (!set_ok) {
                 heap_caps_free(pixels);
-                Logger.logMessage("Portal", "ERROR: Failed to set LVGL image");
+                LOGE("Portal", "Failed to set LVGL image");
 
                 image_api_free((void*)pending_image_op.buffer);
                 pending_image_op.buffer = nullptr;
@@ -1392,7 +1405,7 @@ void image_api_process_pending(bool ota_in_progress) {
             #endif
 
             if (!g_backend.start_strip_session(g_cfg.lcd_width, g_cfg.lcd_height, pending_image_op.timeout_ms, pending_image_op.start_time)) {
-                Logger.logMessage("Portal", "ERROR: Failed to init image display");
+                LOGE("Portal", "Failed to init image display");
                 success = false;
             } else {
                 success = g_backend.decode_strip(buf, sz, 0, false);
@@ -1411,7 +1424,7 @@ void image_api_process_pending(bool ota_in_progress) {
         upload_state = UPLOAD_IDLE;
 
         if (!success) {
-            Logger.logMessage("Portal", "ERROR: Failed to display image");
+            LOGE("Portal", "Failed to display image");
             device_telemetry_log_memory_snapshot("img decode-fail");
             if (g_backend.hide_current_image) {
                 g_backend.hide_current_image();

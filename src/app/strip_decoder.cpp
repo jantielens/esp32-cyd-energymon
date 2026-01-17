@@ -4,7 +4,6 @@
  * Decodes JPEG strips using TJpgDec and writes directly to LCD via DisplayDriver.
  * Performs RGB→BGR color swap during pixel write.
  */
-
 #include "board_config.h"
 
 #if HAS_IMAGE_API
@@ -13,15 +12,12 @@
 #include "display_driver.h"
 #include "log_manager.h"
 
-#if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
-    #include <esp_heap_caps.h>
-#endif
+#include <esp_heap_caps.h>
 
 // Use the ESP-ROM TJpgDec types/signatures. This matches the ROM-provided jd_prepare/jd_decomp
 // symbols used by the ESP32 Arduino core.
 //
 // Note: not all Arduino-ESP32 installs ship headers for every ESP32-family target.
-// We select based on the IDF target macro when available, and fall back to
 // __has_include for toolchains that don't define CONFIG_IDF_TARGET_*.
 #if defined(CONFIG_IDF_TARGET_ESP32)
     #include <esp32/rom/tjpgd.h>
@@ -81,6 +77,7 @@
         #error "Unsupported ESP32 target for TJpgDec (no ROM tjpgd.h found)"
     #endif
 #endif
+
 
 // Input buffer context for TJpgDec
 struct JpegInputContext {
@@ -144,7 +141,7 @@ static UINT jpeg_output_func(JDEC* jd, void* bitmap, JRECT* rect) {
     uint8_t* src = (uint8_t*)bitmap;
     
     if (!ctx || !ctx->line_buffer || !ctx->driver) {
-        Logger.logMessage("StripDecoder", "ERROR: Invalid context or line_buffer or driver");
+        LOGE("STRIPDEC", "Invalid context or line_buffer or driver");
         return 0;
     }
     
@@ -153,7 +150,7 @@ static UINT jpeg_output_func(JDEC* jd, void* bitmap, JRECT* rect) {
 
     // Bounds check
     if (rect_w <= 0 || rect_h <= 0 || rect_w > ctx->buffer_width) {
-        Logger.logMessagef("StripDecoder", "ERROR: Invalid rect (w=%d h=%d, buffer_width=%d)", rect_w, rect_h, ctx->buffer_width);
+        LOGE("STRIPDEC", "Invalid rect (w=%d h=%d, buffer_width=%d)", rect_w, rect_h, ctx->buffer_width);
         return 0;
     }
 
@@ -161,8 +158,8 @@ static UINT jpeg_output_func(JDEC* jd, void* bitmap, JRECT* rect) {
     const int lcd_x = rect->left;
     const int lcd_y = ctx->strip_y_offset + rect->top;
     if (lcd_x < 0 || lcd_y < 0 || lcd_x + rect_w > ctx->lcd_width || lcd_y + rect_h > ctx->lcd_height) {
-        Logger.logMessagef("StripDecoder", "ERROR: Invalid LCD rect: x=%d y=%d w=%d h=%d (LCD: %dx%d)",
-                          lcd_x, lcd_y, rect_w, rect_h, ctx->lcd_width, ctx->lcd_height);
+        LOGE("STRIPDEC", "Invalid LCD rect: x=%d y=%d w=%d h=%d (LCD: %dx%d)",
+             lcd_x, lcd_y, rect_w, rect_h, ctx->lcd_width, ctx->lcd_height);
         return 0;
     }
 
@@ -249,14 +246,14 @@ void StripDecoder::setDisplayDriver(DisplayDriver* drv) {
 void StripDecoder::free_buffers() {
     if (batch_buffer) {
         #if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
-            heap_caps_free(batch_buffer);
+                heap_caps_free(batch_buffer);
         #else
             free(batch_buffer);
         #endif
         batch_buffer = nullptr;
-    }
-    batch_capacity_pixels = 0;
-    batch_max_rows = 0;
+        }
+        batch_capacity_pixels = 0;
+        batch_max_rows = 0;
 
     if (line_buffer) {
         #if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
@@ -293,12 +290,10 @@ bool StripDecoder::ensure_buffers() {
             work_buffer = malloc(work_buffer_size);
         #endif
         if (!work_buffer) {
-            Logger.logMessage("StripDecoder", "ERROR: Failed to allocate TJpgDec work buffer");
+            LOGE("STRIPDEC", "Failed to allocate TJpgDec work buffer");
             return false;
         }
     }
-
-    // Line buffer (width-dependent)
     if (!line_buffer || line_buffer_width != width) {
         if (line_buffer) {
             #if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
@@ -316,7 +311,7 @@ bool StripDecoder::ensure_buffers() {
             line_buffer = (uint16_t*)malloc(bytes);
         #endif
         if (!line_buffer) {
-            Logger.logMessage("StripDecoder", "ERROR: Failed to allocate line buffer");
+            LOGE("STRIPDEC", "Failed to allocate line buffer");
             return false;
         }
         line_buffer_width = width;
@@ -381,7 +376,7 @@ void StripDecoder::begin(int image_width, int image_height, int lcd_w, int lcd_h
     lcd_height = lcd_h;
     current_y = 0;
     
-    Logger.logMessagef("StripDecoder", "Begin decode: %dx%d image on %dx%d LCD", width, height, lcd_width, lcd_height);
+    LOGI("STRIPDEC", "Begin decode: %dx%d image on %dx%d LCD", width, height, lcd_width, lcd_height);
 
     // Allocate per-session buffers once and reuse across strips.
     // If allocation fails, decoding will fail early in decode_strip().
@@ -390,16 +385,16 @@ void StripDecoder::begin(int image_width, int image_height, int lcd_w, int lcd_h
 
 bool StripDecoder::decode_strip(const uint8_t* jpeg_data, size_t jpeg_size, int strip_index, bool output_bgr565) {
     if (!driver) {
-        Logger.logMessage("StripDecoder", "ERROR: No display driver set");
+        LOGE("STRIPDEC", "No display driver set");
         return false;
     }
 
     if (!ensure_buffers()) {
-        Logger.logMessage("StripDecoder", "ERROR: Decoder buffers not available");
+        LOGE("STRIPDEC", "Decoder buffers not available");
         return false;
     }
-    
-    Logger.logBegin("Strip");
+
+    LOGI("Strip", "Decode start");
     
     // Buffers are allocated once per session (begin/end) to reduce heap churn.
     const int kBatchMaxRows = batch_max_rows;
@@ -429,8 +424,7 @@ bool StripDecoder::decode_strip(const uint8_t* jpeg_data, size_t jpeg_size, int 
     res = jd_prepare(&jdec, jpeg_input_func, work_buffer, (UINT)work_buffer_size, &session_ctx);
     
     if (res != JDR_OK) {
-        Logger.logLinef("ERROR: jd_prepare failed: %d", res);
-        Logger.logEnd();
+        LOGE("Strip", "jd_prepare failed: %d", res);
         return false;
     }
     
@@ -438,8 +432,7 @@ bool StripDecoder::decode_strip(const uint8_t* jpeg_data, size_t jpeg_size, int 
     res = jd_decomp(&jdec, jpeg_output_func, 0);  // 0 = 1:1 scale
     
     if (res != JDR_OK) {
-        Logger.logLinef("ERROR: jd_decomp failed: %d", res);
-        Logger.logEnd();
+        LOGE("Strip", "jd_decomp failed: %d", res);
         return false;
     }
 
@@ -456,7 +449,7 @@ bool StripDecoder::decode_strip(const uint8_t* jpeg_data, size_t jpeg_size, int 
 }
 
 void StripDecoder::end() {
-    Logger.logMessagef("StripDecoder", "Complete at Y=%d", current_y);
+    LOGI("STRIPDEC", "Complete at Y=%d", current_y);
 
     // Free session buffers so the heap can recover between image sessions.
     free_buffers();

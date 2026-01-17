@@ -19,6 +19,7 @@
 #include <stdint.h>
 
 class AsyncWebServer;
+class AsyncWebServerRequest;
 
 // Backend adapter interface for connecting to display system
 // Implement these three hooks to integrate with your display pipeline
@@ -47,7 +48,8 @@ void image_api_init(const ImageApiConfig& cfg, const ImageApiBackend& backend);
 //   POST   /api/display/image_url      - Queue HTTP/HTTPS JPEG download (deferred download+decode)
 //   DELETE /api/display/image          - Dismiss current image
 //   POST   /api/display/image/strips   - Upload JPEG strip (synchronous)
-void image_api_register_routes(AsyncWebServer* server);
+// auth_gate: optional hook to enforce portal auth. Return true to allow, false to deny (should send response).
+void image_api_register_routes(AsyncWebServer* server, bool (*auth_gate)(AsyncWebServerRequest* request) = nullptr);
 
 // Process pending image operations (call from main loop)
 // ota_in_progress: true if OTA update is in progress (skips processing)

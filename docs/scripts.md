@@ -9,8 +9,9 @@ This project includes several bash scripts to streamline ESP32 development workf
 **What it contains:**
 - Project configuration (`PROJECT_NAME`, `SKETCH_PATH`, `BUILD_PATH`)
 - Board targets (`FQBN_TARGETS` associative array)
+- Optionally sources `config.project.sh` for project-specific overrides (recommended for template-based projects)
 - `find_arduino_cli()` - Locates arduino-cli (local or system-wide)
-- `find_serial_port()` - Auto-detects `/dev/ttyUSB0` or `/dev/ttyACM0`
+- `find_serial_port()` - Auto-detects `/dev/ttyUSB*` or `/dev/ttyACM*`
 - `get_board_name()` - Returns board name (identity function for compatibility)
 - `list_boards()` - Lists all configured boards
 - `get_fqbn_for_board()` - Gets FQBN for a board name
@@ -22,8 +23,8 @@ This project includes several bash scripts to streamline ESP32 development workf
 declare -A FQBN_TARGETS=(
   ["esp32-nodisplay"]="esp32:esp32:esp32"  # ESP32 Dev Module (no display)
   ["esp32c3-waveshare-169-st7789v2"]="esp32:esp32:nologo_esp32c3_super_mini:CDCOnBoot=cdc"  # ESP32-C3 + Waveshare 1.69\" ST7789V2
-    ["esp32c3_ota_1_9mb"]="esp32:esp32:nologo_esp32c3_super_mini:CDCOnBoot=cdc,PartitionScheme=ota_1_9mb"  # ESP32-C3 w/ custom partitions
-    ["cyd-v2"]="esp32:esp32:esp32"                                   # CYD v2 (same FQBN, different board_overrides.h)
+  ["esp32c3_ota_1_9mb"]="esp32:esp32:nologo_esp32c3_super_mini:CDCOnBoot=cdc,PartitionScheme=ota_1_9mb"  # ESP32-C3 w/ custom partitions
+  ["cyd-v2"]="esp32:esp32:esp32"  # CYD v2 (same FQBN, different board_overrides.h)
 )
 ```
 
@@ -68,6 +69,7 @@ BOARD_PROFILE=psram ./build.sh esp32-nodisplay  # Optional build profile (if def
 **What it does:**
 - Optionally generates LVGL PNG assets from `assets/png/*.png` into `src/app/png_assets.cpp` + `src/app/png_assets.h` (only when building for at least one display-enabled board)
 - Generates minified web assets (once for all builds)
+  - Also generates `src/app/repo_slug_config.h` when `git remote origin` points at a GitHub repo (used to construct GitHub Pages links)
 - Prints a per-board "Compile-time flags summary" (active `HAS_*` features + key selectors) to make it clear what the build will include
 - Compiles `src/app/app.ino` for specified board(s)
 - Creates board-specific directories: `./build/esp32-nodisplay/`, `./build/esp32c3-waveshare-169-st7789v2/`, etc.
@@ -81,7 +83,25 @@ BOARD_PROFILE=psram ./build.sh esp32-nodisplay  # Optional build profile (if def
     - `BOARD_<BOARDNAME>` - Board name sanitized to valid C++ macro (alphanumeric + underscore only)
       - Examples: `cyd-v2` → `BOARD_CYD_V2`, `esp32c3-waveshare-169-st7789v2` → `BOARD_ESP32C3_WAVESHARE_169_ST7789V2`
     - `BOARD_HAS_OVERRIDE` (triggers inclusion of `board_overrides.h`)
+    - `BUILD_BOARD_NAME` (string literal; used to select the correct per-board app-only GitHub release asset for online updates)
     - Note: these flags are applied to both C++ and C compilation units (LVGL is built as C), so LVGL config can also react to board overrides.
+
+**Board overrides and library builds:**
+
+Some compile-time settings need to apply not only to the sketch, but also to separately-built Arduino libraries (which may compile as their own translation units). For a small allowlist of known-safe settings, `build.sh` propagates values found in `src/boards/<board>/board_overrides.h` into global compiler flags (C and C++).
+
+- Currently allowlisted includes:
+  - `CONFIG_ASYNC_TCP_STACK_SIZE` (AsyncTCP task stack size)
+  - TFT_eSPI essentials needed for clean/CI builds (pins + SPI frequencies + controller/bus flags)
+- Example (inside `src/boards/<board>/board_overrides.h`): `#define CONFIG_ASYNC_TCP_STACK_SIZE 16384`
+
+**TFT_eSPI per-board setup (recommended for reproducibility):**
+
+If a board depends on TFT_eSPI and needs a full TFT_eSPI `User_Setup.h` (or you want to avoid relying on a locally modified Arduino library install), you can add:
+
+- `src/boards/<board>/User_Setup.h`
+
+When present, `build.sh` will force-include that file for the board and set `USER_SETUP_LOADED=1` so TFT_eSPI skips its default setup.
 
 **Build Output Structure:**
 ```
@@ -208,6 +228,16 @@ This script automates both steps.
 
 **Usage:**
 
+**Options:**
+```bash
+./upload.sh --full        # Flash bootloader + partitions + boot_app0 + app at the correct offsets (preserves NVS by default)
+./upload.sh --app-only    # Flash only the app at the correct app offset
+./upload.sh --merged      # Flash merged image at 0x0 (legacy; overwrites NVS on most layouts)
+./upload.sh --baud 921600 # Set esptool baud rate for flashing (faster on many USB-UART adapters)
+./upload.sh --erase-nvs   # Erase NVS only (WiFi/config reset)
+./upload.sh --erase-flash # Erase entire flash (destructive)
+```
+
 **Single Board Configuration:**
 ```bash
 ./upload.sh              # Auto-detects port
@@ -227,6 +257,11 @@ This script automates both steps.
 - Detects connected ESP32 boards
 - Uploads firmware from board-specific `./build/<board>/` directory to the device
 - Auto-detects serial port if not specified
+
+**PartitionScheme note:**
+- If the board FQBN includes `PartitionScheme=...`, `upload.sh` defaults to `--full` to ensure partition changes are applied and the app is flashed at the correct offset.
+- Use `--merged` only if you explicitly want a merged-at-0x0 flash (destructive on most layouts).
+- Use `--app-only` for faster updates when the partition layout is already correct.
 
 **Requirements:** 
 - Must run `build.sh [board]` first
@@ -356,6 +391,9 @@ This script automates both steps.
 ./bum.sh                # Build + Upload + Monitor
 ./um.sh                 # Upload + Monitor
 
+# You can pass upload.sh options through
+./um.sh --baud 921600    # Faster flashing (if supported)
+
 # Clean build when needed
 ./clean.sh
 ./build.sh
@@ -385,6 +423,9 @@ This script automates both steps.
 # Full cycle for specific board
 ./bum.sh esp32-nodisplay          # Build + Upload + Monitor
 ./um.sh esp32c3-waveshare-169-st7789v2         # Upload + Monitor
+
+# With upload options
+./um.sh --baud 921600 cyd-v2                  # Upload + Monitor at custom baud
 
 # Clean all board builds
 ./clean.sh

@@ -5,6 +5,8 @@
 #include "display_manager.h"
 #include "log_manager.h"
 
+#include <esp_timer.h>
+
 // Include selected display driver header.
 // Driver implementations are compiled via src/app/display_drivers.cpp.
 #if DISPLAY_DRIVER == DISPLAY_DRIVER_TFT_ESPI
@@ -19,16 +21,25 @@
 
 #include <SPI.h>
 
+static portMUX_TYPE g_splash_status_mux = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE g_perf_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static DisplayPerfStats g_perf = {0, 0, 0};
+static bool g_perf_ready = false;
+static uint32_t g_perf_window_start_ms = 0;
+static uint16_t g_perf_frames_in_window = 0;
+
 // Global instance
 DisplayManager* displayManager = nullptr;
 
 DisplayManager::DisplayManager(DeviceConfig* cfg) 
     : driver(nullptr), config(cfg), currentScreen(nullptr), previousScreen(nullptr), pendingScreen(nullptr), 
-            infoScreen(cfg, this), energyMonitorScreen(cfg, this), testScreen(this),
+      infoScreen(cfg, this), testScreen(this),
       #if HAS_IMAGE_API
       directImageScreen(this),
       #endif
-        lvglTaskHandle(nullptr), lvglMutex(nullptr), screenCount(0), buf(nullptr), flushPending(false), directImageActive(false) {
+                lvglTaskHandle(nullptr), lvglMutex(nullptr), screenCount(0), buf(nullptr), flushPending(false), directImageActive(false), pendingSplashStatusSet(false) {
+        pendingSplashStatus[0] = '\0';
     // Instantiate selected display driver
     #if DISPLAY_DRIVER == DISPLAY_DRIVER_TFT_ESPI
     driver = new TFT_eSPI_Driver();
@@ -46,21 +57,20 @@ DisplayManager::DisplayManager(DeviceConfig* cfg)
     lvglMutex = xSemaphoreCreateMutex();
     
     // Initialize screen registry (exclude splash - it's boot-specific)
-    availableScreens[0] = {"energy", "Energy Monitor", &energyMonitorScreen};
-    availableScreens[1] = {"info", "Info Screen", &infoScreen};
-    availableScreens[2] = {"test", "Test Screen", &testScreen};
+    availableScreens[0] = {"info", "Info Screen", &infoScreen};
+    availableScreens[1] = {"test", "Test Screen", &testScreen};
     #if HAS_IMAGE_API
     // Optional LVGL image screen (JPEG -> RGB565 -> lv_img).
     // Included under HAS_IMAGE_API for simplicity. To reduce firmware size,
     // disable LVGL image support via LV_USE_IMG=0 / LV_USE_IMG_TRANSFORM=0 in src/app/lv_conf.h.
     #if LV_USE_IMG
-    availableScreens[3] = {"lvgl_image", "LVGL Image", &lvglImageScreen};
-    screenCount = 4;
-    #else
+    availableScreens[2] = {"lvgl_image", "LVGL Image", &lvglImageScreen};
     screenCount = 3;
+    #else
+    screenCount = 2;
     #endif
     #else
-    screenCount = 3;
+    screenCount = 2;
     #endif
     
     #if HAS_IMAGE_API
@@ -82,7 +92,6 @@ DisplayManager::~DisplayManager() {
     
     splashScreen.destroy();
     infoScreen.destroy();
-    energyMonitorScreen.destroy();
     testScreen.destroy();
     
     #if HAS_IMAGE_API
@@ -207,12 +216,26 @@ bool DisplayManager::tryLock(uint32_t timeoutMs) {
 void DisplayManager::lvglTask(void* pvParameter) {
     DisplayManager* mgr = (DisplayManager*)pvParameter;
     
-    Logger.logBegin("LVGL Rendering Task");
-    Logger.logLinef("Started on core %d", xPortGetCoreID());
-    Logger.logEnd();
+    LOGI("Display", "LVGL render task start (core %d)", xPortGetCoreID());
     
     while (true) {
         mgr->lock();
+
+        // Apply any deferred splash status update.
+        if (mgr->pendingSplashStatusSet) {
+            char text[sizeof(mgr->pendingSplashStatus)];
+            bool has = false;
+            portENTER_CRITICAL(&g_splash_status_mux);
+            if (mgr->pendingSplashStatusSet) {
+                strlcpy(text, mgr->pendingSplashStatus, sizeof(text));
+                mgr->pendingSplashStatusSet = false;
+                has = true;
+            }
+            portEXIT_CRITICAL(&g_splash_status_mux);
+            if (has) {
+                mgr->splashScreen.setStatus(text);
+            }
+        }
         
         // Process pending screen switch (deferred from external calls)
         if (mgr->pendingScreen) {
@@ -241,11 +264,13 @@ void DisplayManager::lvglTask(void* pvParameter) {
             #endif
 
             const char* screenId = mgr->getScreenIdForInstance(mgr->currentScreen);
-            Logger.logMessagef("Display", "Switched to %s", screenId ? screenId : "(unregistered)");
+            LOGI("Display", "Switched to %s", screenId ? screenId : "(unregistered)");
         }
         
         // Handle LVGL rendering (animations, timers, etc.)
+        const uint64_t lv_start_us = esp_timer_get_time();
         uint32_t delayMs = lv_timer_handler();
+        const uint32_t lv_timer_us = (uint32_t)(esp_timer_get_time() - lv_start_us);
         
         // Update current screen (data refresh)
         if (mgr->currentScreen) {
@@ -254,9 +279,36 @@ void DisplayManager::lvglTask(void* pvParameter) {
         
         // Flush canvas buffer only when LVGL produced draw data.
         if (mgr->flushPending) {
+            const uint32_t now_ms = millis();
+            if (g_perf_window_start_ms == 0) {
+                g_perf_window_start_ms = now_ms;
+                g_perf_frames_in_window = 0;
+            }
+
+            uint64_t present_start_us = 0;
             if (mgr->driver->renderMode() == DisplayDriver::RenderMode::Buffered) {
+                present_start_us = esp_timer_get_time();
                 mgr->driver->present();
             }
+
+            const uint32_t present_us = (present_start_us == 0) ? 0 : (uint32_t)(esp_timer_get_time() - present_start_us);
+            g_perf_frames_in_window++;
+
+            // Update published stats every ~1s.
+            const uint32_t elapsed = now_ms - g_perf_window_start_ms;
+            if (elapsed >= 1000) {
+                const uint16_t fps = g_perf_frames_in_window;
+                portENTER_CRITICAL(&g_perf_mux);
+                g_perf.fps = fps;
+                g_perf.lv_timer_us = lv_timer_us;
+                g_perf.present_us = present_us;
+                g_perf_ready = true;
+                portEXIT_CRITICAL(&g_perf_mux);
+
+                g_perf_window_start_ms = now_ms;
+                g_perf_frames_in_window = 0;
+            }
+
             mgr->flushPending = false;
         }
         
@@ -270,8 +322,20 @@ void DisplayManager::lvglTask(void* pvParameter) {
     }
 }
 
+bool display_manager_get_perf_stats(DisplayPerfStats* out) {
+    if (!out) return false;
+    bool ok = false;
+    portENTER_CRITICAL(&g_perf_mux);
+    ok = g_perf_ready;
+    if (ok) {
+        *out = g_perf;
+    }
+    portEXIT_CRITICAL(&g_perf_mux);
+    return ok;
+}
+
 void DisplayManager::initHardware() {
-    Logger.logBegin("Display Init");
+    LOGI("Display", "Init start");
     
     // Initialize display driver
     driver->init();
@@ -282,24 +346,24 @@ void DisplayManager::initHardware() {
     uint8_t brightness = config ? config->backlight_brightness : 100;
     if (brightness > 100) brightness = 100;
     driver->setBacklightBrightness(brightness);
-    Logger.logLinef("Backlight: %d%%", brightness);
+    LOGI("Display", "Backlight: %d%%", brightness);
     #else
     // Turn on backlight (on/off only)
     driver->setBacklight(true);
-    Logger.logLine("Backlight: ON");
+    LOGI("Display", "Backlight: ON");
     #endif
     
-    Logger.logLinef("Resolution: %dx%d", DISPLAY_WIDTH, DISPLAY_HEIGHT);
-    Logger.logLinef("Rotation: %d", DISPLAY_ROTATION);
+    LOGI("Display", "Resolution: %dx%d", DISPLAY_WIDTH, DISPLAY_HEIGHT);
+    LOGI("Display", "Rotation: %d", DISPLAY_ROTATION);
     
     // Apply display-specific settings (inversion, gamma, etc.)
     driver->applyDisplayFixes();
     
-    Logger.logEnd();
+    LOGI("Display", "Init complete");
 }
 
 void DisplayManager::initLVGL() {
-    Logger.logBegin("LVGL Init");
+    LOGI("Display", "LVGL init start");
     
     lv_init();
     
@@ -308,23 +372,22 @@ void DisplayManager::initLVGL() {
     if (LVGL_BUFFER_PREFER_INTERNAL) {
         buf = (lv_color_t*)heap_caps_malloc(LVGL_BUFFER_SIZE * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         if (!buf) {
-            Logger.logLine("Internal RAM allocation failed, trying PSRAM...");
+            LOGW("Display", "Internal RAM alloc failed, trying PSRAM...");
             buf = (lv_color_t*)heap_caps_malloc(LVGL_BUFFER_SIZE * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
         }
     } else {
         // Default: PSRAM first, fallback to internal.
         buf = (lv_color_t*)heap_caps_malloc(LVGL_BUFFER_SIZE * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
         if (!buf) {
-            Logger.logLine("PSRAM allocation failed, trying internal RAM...");
+            LOGW("Display", "PSRAM alloc failed, trying internal RAM...");
             buf = (lv_color_t*)heap_caps_malloc(LVGL_BUFFER_SIZE * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         }
     }
     if (!buf) {
-        Logger.logLine("ERROR: Failed to allocate LVGL buffer!");
-        Logger.logEnd();
+        LOGE("Display", "Failed to allocate LVGL buffer");
         return;
     }
-    Logger.logLinef("Buffer allocated: %d bytes (%d pixels)", LVGL_BUFFER_SIZE * sizeof(lv_color_t), LVGL_BUFFER_SIZE);
+    LOGI("Display", "Buffer allocated: %d bytes (%d pixels)", LVGL_BUFFER_SIZE * sizeof(lv_color_t), LVGL_BUFFER_SIZE);
     
     // Initialize default theme (dark mode with custom primary color)
     lv_theme_t* theme = lv_theme_default_init(
@@ -335,7 +398,7 @@ void DisplayManager::initLVGL() {
         LV_FONT_DEFAULT                // Default font
     );
     lv_disp_set_theme(NULL, theme);
-    Logger.logLine("Theme: Default dark mode initialized");
+    LOGI("Display", "Theme: Default dark mode initialized");
     
     // Set up display buffer
     lv_disp_draw_buf_init(&draw_buf, buf, NULL, LVGL_BUFFER_SIZE);
@@ -353,8 +416,8 @@ void DisplayManager::initLVGL() {
     
     lv_disp_drv_register(&disp_drv);
     
-    Logger.logLinef("Buffer: %d pixels (%d lines)", LVGL_BUFFER_SIZE, LVGL_BUFFER_SIZE / DISPLAY_WIDTH);
-    Logger.logEnd();
+    LOGI("Display", "Buffer: %d pixels (%d lines)", LVGL_BUFFER_SIZE, LVGL_BUFFER_SIZE / DISPLAY_WIDTH);
+    LOGI("Display", "LVGL init complete");
 }
 
 void DisplayManager::init() {
@@ -364,11 +427,10 @@ void DisplayManager::init() {
     // Initialize LVGL
     initLVGL();
     
-    Logger.logBegin("Display Manager Init");
+    LOGI("Display", "Manager init start");
     
     // Create all screens
     splashScreen.create();
-    energyMonitorScreen.create();
     infoScreen.create();
     testScreen.create();
     #if HAS_IMAGE_API
@@ -377,7 +439,7 @@ void DisplayManager::init() {
     #endif
     #endif
     
-    Logger.logLine("Screens created");
+    LOGI("Display", "Screens created");
     
     // Show splash immediately
     showSplash();
@@ -388,13 +450,13 @@ void DisplayManager::init() {
     // On single-core: runs on Core 0 (time-sliced with Arduino loop)
     #if CONFIG_FREERTOS_UNICORE
     xTaskCreate(lvglTask, "LVGL", 8192, this, 1, &lvglTaskHandle);
-    Logger.logLine("Rendering task created (single-core)");
+    LOGI("Display", "Rendering task created (single-core)");
     #else
     xTaskCreatePinnedToCore(lvglTask, "LVGL", 8192, this, 1, &lvglTaskHandle, 0);
-    Logger.logLine("Rendering task created (pinned to Core 0)");
+    LOGI("Display", "Rendering task created (pinned to Core 0)");
     #endif
     
-    Logger.logEnd();
+    LOGI("Display", "Manager init complete");
 }
 
 void DisplayManager::showSplash() {
@@ -406,19 +468,19 @@ void DisplayManager::showSplash() {
     currentScreen = &splashScreen;
     currentScreen->show();
     unlock();
-    Logger.logMessage("Display", "Switched to SplashScreen");
+    LOGI("Display", "Switched to SplashScreen");
 }
 
 void DisplayManager::showInfo() {
     // Defer screen switch to lvglTask (non-blocking)
     pendingScreen = &infoScreen;
-    Logger.logMessage("Display", "Queued switch to InfoScreen");
+    LOGI("Display", "Queued switch to InfoScreen");
 }
 
 void DisplayManager::showTest() {
     // Defer screen switch to lvglTask (non-blocking)
     pendingScreen = &testScreen;
-    Logger.logMessage("Display", "Queued switch to TestScreen");
+    LOGI("Display", "Queued switch to TestScreen");
 }
 
 #if HAS_IMAGE_API
@@ -427,7 +489,7 @@ void DisplayManager::showDirectImage() {
     // LVGL screen switch (it would also risk clobbering previousScreen).
     if (currentScreen == &directImageScreen) {
         directImageActive = true;
-        Logger.logMessage("Display", "Already on DirectImageScreen");
+        LOGI("Display", "Already on DirectImageScreen");
         return;
     }
 
@@ -445,7 +507,7 @@ void DisplayManager::showDirectImage() {
     flushPending = false;
     directImageActive = true;
     pendingScreen = &directImageScreen;
-    Logger.logMessage("Display", "Queued switch to DirectImageScreen");
+    LOGI("Display", "Queued switch to DirectImageScreen");
 }
 
 void DisplayManager::returnToPreviousScreen() {
@@ -455,14 +517,25 @@ void DisplayManager::returnToPreviousScreen() {
     directImageActive = false;
     pendingScreen = targetScreen;
     previousScreen = nullptr;  // Clear previous screen reference
-    Logger.logMessage("Display", "Queued return to previous screen");
+    LOGI("Display", "Queued return to previous screen");
 }
 #endif
 
 void DisplayManager::setSplashStatus(const char* text) {
-    lock();
-    splashScreen.setStatus(text);
-    unlock();
+    // If called before the LVGL task exists (during early setup), update directly.
+    // Otherwise, defer to the LVGL task to avoid cross-task LVGL calls.
+    if (!lvglTaskHandle || isInLvglTask()) {
+        bool didLock = false;
+        lockIfNeeded(didLock);
+        splashScreen.setStatus(text);
+        unlockIfNeeded(didLock);
+        return;
+    }
+
+    portENTER_CRITICAL(&g_splash_status_mux);
+    strlcpy(pendingSplashStatus, text ? text : "", sizeof(pendingSplashStatus));
+    pendingSplashStatusSet = true;
+    portEXIT_CRITICAL(&g_splash_status_mux);
 }
 
 bool DisplayManager::showScreen(const char* screen_id) {
@@ -473,12 +546,12 @@ bool DisplayManager::showScreen(const char* screen_id) {
         if (strcmp(availableScreens[i].id, screen_id) == 0) {
             // Defer screen switch to lvglTask (non-blocking)
             pendingScreen = availableScreens[i].instance;
-            Logger.logMessagef("Display", "Queued switch to screen: %s", screen_id);
+            LOGI("Display", "Queued switch to screen: %s", screen_id);
             return true;
         }
     }
     
-    Logger.logMessagef("Display", "Screen not found: %s", screen_id);
+    LOGW("Display", "Screen not found: %s", screen_id);
     return false;
 }
 
@@ -508,12 +581,6 @@ void display_manager_init(DeviceConfig* config) {
 void display_manager_show_splash() {
     if (displayManager) {
         displayManager->showSplash();
-    }
-}
-
-void display_manager_show_energy_monitor() {
-    if (displayManager) {
-        displayManager->showScreen("energy");
     }
 }
 

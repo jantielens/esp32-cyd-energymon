@@ -49,6 +49,7 @@ The device derives a **sanitized name** from the configured device name and uses
 
 Home Assistant discovery topics:
 - `homeassistant/sensor/<sanitized>/<object_id>/config` (retained)
+- `homeassistant/binary_sensor/<sanitized>/<object_id>/config` (retained)
 
 ## State Payload (JSON)
 
@@ -57,9 +58,17 @@ The state topic publishes one JSON document that contains multiple fields (examp
 - `reset_reason`
 - `cpu_usage`
 - `cpu_temperature`
-- `heap_free`, `heap_min`, `heap_fragmentation`
+- `heap_free`, `heap_min`, `heap_largest`, `heap_fragmentation`
+- `heap_internal_free`, `heap_internal_min`, `heap_internal_largest`
+- `psram_free`, `psram_min`, `psram_largest`, `psram_fragmentation`
 - `flash_used`, `flash_total`
+- `fs_mounted`, `fs_used_bytes`, `fs_total_bytes`
+- `display_fps`, `display_lv_timer_us`, `display_present_us` (when `HAS_DISPLAY`)
 - `wifi_rssi`
+
+Note:
+- The web API `/api/health` includes additional `mqtt_*` self-report fields for debugging.
+- The MQTT state payload intentionally omits those `mqtt_*` fields; consumers should use the MQTT availability/LWT topic as the source of truth.
 
 Home Assistant entities use `value_template` to extract a single field, e.g.
 
@@ -183,8 +192,8 @@ void publish_presence_state(MqttManager &mqtt, bool presence) {
 
 2) Add HA discovery for the presence binary_sensor.
 
-Today, [src/app/ha_discovery.cpp](src/app/ha_discovery.cpp) only publishes `sensor` discovery entries.
-For presence, the recommended pattern is adding a small `publish_binary_sensor_config(...)` helper that publishes:
+Today, [src/app/ha_discovery.cpp](src/app/ha_discovery.cpp) publishes both `sensor` and `binary_sensor` discovery entries for the default health payload.
+For presence, the recommended pattern is publishing a **separate presence state topic**, then registering a presence `binary_sensor` that points at that topic:
 - topic: `homeassistant/binary_sensor/<sanitized>/<object_id>/config`
 - `stat_t`: `~/presence/state`
 - `pl_on`: `ON`

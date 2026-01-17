@@ -151,7 +151,7 @@ static void handle_pending_requests() {
         if (!doWake) {
             const uint8_t from = g_current_brightness;
             start_fade(ScreenSaverState::FadingOut, from, 0, fade_out_ms());
-            Logger.logMessage("ScreenSaver", "Sleep requested");
+            LOGI("SAVER", "Sleep requested");
         }
     }
 
@@ -175,7 +175,7 @@ static void handle_pending_requests() {
         #endif
 
         start_fade(ScreenSaverState::FadingIn, from, target, fade_in_ms());
-        Logger.logMessage("ScreenSaver", "Wake requested");
+        LOGI("SAVER", "Wake requested");
     }
 }
 
@@ -224,7 +224,7 @@ static void maybe_auto_sleep() {
     const uint32_t now = millis();
     if (now - g_last_activity_ms >= toMs) {
         start_fade(ScreenSaverState::FadingOut, g_current_brightness, 0, fade_out_ms());
-        Logger.logMessage("ScreenSaver", "Auto-sleep (timeout)");
+        LOGI("SAVER", "Auto-sleep (timeout)");
     }
 }
 
@@ -279,7 +279,7 @@ void screen_saver_manager_init(DeviceConfig* config) {
         g_current_brightness = driverBrightness;
     }
 
-    Logger.logMessagef("ScreenSaver", "Init: enabled=%d timeout=%us fade_out=%ums fade_in=%ums wake_touch=%d",
+    LOGI("SAVER", "Init: enabled=%d timeout=%us fade_out=%ums fade_in=%ums wake_touch=%d",
         (int)(g_config ? g_config->screen_saver_enabled : 0),
         (unsigned)(g_config ? g_config->screen_saver_timeout_seconds : 0),
         (unsigned)fade_out_ms(),
@@ -316,7 +316,7 @@ void screen_saver_manager_loop() {
     const bool force = (g_state != ScreenSaverState::Awake);
     if (force != prev_force) {
         touch_manager_set_lvgl_force_released(force);
-        Logger.logMessagef("ScreenSaver", "Touch suppress %s", force ? "ON" : "OFF");
+        LOGI("SAVER", "Touch suppress %s", force ? "ON" : "OFF");
         prev_force = force;
     }
     #endif

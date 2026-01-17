@@ -82,6 +82,7 @@ All scripts use absolute paths via `SCRIPT_DIR` resolution - they work from any 
   - Board management: `FQBN_TARGETS` array, `get_board_name()`, `list_boards()`, `get_fqbn_for_board()`
 - Scripts work from any directory due to absolute path resolution
 - Multi-board scripts require board name parameter when multiple targets are configured
+- To reduce merge conflicts in template-based projects, `config.sh` can source an optional `config.project.sh` with project-specific overrides.
 
 ### Arduino Code Standards
 - Use `Serial.begin(115200)` for consistency with monitor.sh default
@@ -93,7 +94,7 @@ All scripts use absolute paths via `SCRIPT_DIR` resolution - they work from any 
 **Multi-Page Architecture**:
 - **Home** (`/` or `/home.html`): Custom settings and welcome message (Full Mode only)
 - **Network** (`/network.html`): WiFi, device, and network configuration (both modes)
-- **Firmware** (`/firmware.html`): OTA updates and factory reset (Full Mode only)
+- **Firmware** (`/firmware.html`): Online update (GitHub Releases), manual upload, and factory reset (Full Mode only)
 - Template fragments: `_header.html`, `_nav.html`, `_footer.html` used via `{{HEADER}}`, `{{NAV}}`, `{{FOOTER}}` placeholders
 - Build-time template replacement in `tools/minify-web-assets.sh`
 
@@ -192,10 +193,13 @@ See `docs/wsl-development.md` for complete USB/IP setup guide.
 - `src/app/web/_footer.html` - Form buttons template
 - `src/app/web/home.html` - Home page (Hello World + Sample Settings)
 - `src/app/web/network.html` - Network configuration page
-- `src/app/web/firmware.html` - Firmware update and factory reset page
+- `src/app/web/firmware.html` - Firmware page (online update, manual upload, factory reset)
 - `src/app/web/portal.css` - Styles (gradients, animations, responsive grid)
 - `src/app/web/portal.js` - Client-side logic (multi-page support, API calls, health updates)
 - `src/version.h` - Firmware version tracking
+
+### Documentation
+- docs/logging-guidelines.md - Logging rules and format (LOGx macros, severity, modules)
 
 ### Tools
 - `tools/minify-web-assets.sh` - Minifies and embeds web assets into `web_assets.h`
