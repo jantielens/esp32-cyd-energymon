@@ -24,6 +24,12 @@ public:
     void begin(const DeviceConfig *config, const char *friendly_name, const char *sanitized_name);
     void loop();
 
+    // Request a reconnect (applies updated MQTT settings/topics).
+    void requestReconnect();
+
+    // PubSubClient callback entry point (called via trampoline).
+    void handleIncomingMessage(const char *topic, const uint8_t *payload, unsigned int length);
+
     bool enabled() const;
     bool publishEnabled() const;
     bool connected();
@@ -51,6 +57,7 @@ private:
     void publishDiscoveryOncePerBoot();
     void publishHealthNow();
     void publishHealthIfDue();
+    void subscribeEnergyMonitorTopics();
 
     bool connectEnabled() const;
     uint16_t resolvedPort() const;
@@ -67,13 +74,18 @@ private:
     char _health_state_topic[128] = {0};
 
     bool _discovery_published_this_boot = false;
+    bool _energy_subscriptions_active = false;
 
     unsigned long _last_reconnect_attempt_ms = 0;
     unsigned long _last_health_publish_ms = 0;
+    unsigned long _last_energy_subscribe_attempt_ms = 0;
 };
 
 // Global instance (defined in app.ino)
 extern MqttManager mqtt_manager;
+
+// Request a reconnect from outside the MQTT manager (thread-safe by design).
+void mqtt_manager_request_reconnect();
 
 #endif // HAS_MQTT
 

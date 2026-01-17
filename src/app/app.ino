@@ -5,6 +5,7 @@
 #include "log_manager.h"
 #include "mqtt_manager.h"
 #include "device_telemetry.h"
+#include "energy_monitor.h"
 #if HEALTH_HISTORY_ENABLED
 #include "health_history.h"
 #endif
@@ -100,6 +101,14 @@ void setup()
   device_config.backlight_brightness = 100;  // Default to full brightness
   device_config.mqtt_port = 0;
   device_config.mqtt_interval_seconds = 0;
+
+  // Energy Monitor UI defaults (kW)
+  device_config.energy_solar_bar_max_kw = 3.0f;
+  device_config.energy_home_bar_max_kw = 3.0f;
+  device_config.energy_grid_bar_max_kw = 3.0f;
+
+  // Energy monitor state (updated by MQTT, read by LVGL task)
+  energy_monitor_init();
 
   #if HAS_DISPLAY
   // Screen saver defaults (v1)
@@ -223,8 +232,8 @@ void setup()
   display_manager_set_splash_status("Ready!");
   delay(2000);  // 2 seconds to see splash + status updates
 
-  // Navigate to info screen
-  display_manager_show_info();
+  // Navigate to energy monitor screen
+  display_manager_show_energy_monitor();
 
   // Start the screen saver inactivity timer after the first runtime screen is visible.
   // This avoids counting boot + splash time as "inactivity".

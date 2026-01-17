@@ -8,8 +8,8 @@
 # conflicts resolved).
 
 # Project branding
-PROJECT_NAME="my-iot-device"
-PROJECT_DISPLAY_NAME="My IoT Device"
+PROJECT_NAME="cyd-energy-monitor"
+PROJECT_DISPLAY_NAME="CYD Energy Monitor"
 
 # Board targets for this project
 # (You can replace the full array; it overrides the defaults from config.sh)
@@ -35,8 +35,6 @@ PROJECT_DISPLAY_NAME="My IoT Device"
 #   ["esp32c3_ota_1_9mb"]="esp32:esp32:nologo_esp32c3_super_mini:CDCOnBoot=cdc,PartitionScheme=ota_1_9mb"    # ESP32-C3 w/ custom partitions (example)
 #   ["esp32c6"]="esp32:esp32:esp32c6:CDCOnBoot=cdc"                              # ESP32-C6 (USB CDC)
 #   ["cyd-v2"]="esp32:esp32:esp32"                                                # CYD display v2 (same FQBN as classic ESP32)
-#
-# declare -A FQBN_TARGETS=(
-#     ["esp32-nodisplay"]="esp32:esp32:esp32"
-#     ["esp32c3"]="esp32:esp32:nologo_esp32c3_super_mini:CDCOnBoot=cdc"
-# )
+declare -A FQBN_TARGETS=(
+    ["cyd-v2"]="esp32:esp32:esp32:PartitionScheme=huge_app"
+ )

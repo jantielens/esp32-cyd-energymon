@@ -30,6 +30,179 @@
             </section>
             </div>
 
+            <section class="section">
+                <h2>⚡ Energy Monitor</h2>
+                <div class="form-group">
+                    <label for="mqtt_topic_solar">Solar Power Topic</label>
+                    <input type="text" id="mqtt_topic_solar" name="mqtt_topic_solar" maxlength="127" placeholder="e.g. home/solar/power">
+                    <small>MQTT topic for solar power readings (payload can be a number or JSON)</small>
+                </div>
+                <div class="form-group">
+                    <label for="mqtt_solar_value_path">Solar Value Path</label>
+                    <input type="text" id="mqtt_solar_value_path" name="mqtt_solar_value_path" maxlength="31" placeholder="e.g. . or value">
+                    <small>Use <strong>.</strong> for direct numeric payloads (e.g., 0.92) or a JSON key (e.g., <strong>value</strong>)</small>
+                </div>
+                <div class="form-group">
+                    <label for="mqtt_topic_grid">Grid Power Topic</label>
+                    <input type="text" id="mqtt_topic_grid" name="mqtt_topic_grid" maxlength="127" placeholder="e.g. home/grid/power">
+                    <small>MQTT topic for grid power readings (payload can be a number or JSON)</small>
+                </div>
+                <div class="form-group">
+                    <label for="mqtt_grid_value_path">Grid Value Path</label>
+                    <input type="text" id="mqtt_grid_value_path" name="mqtt_grid_value_path" maxlength="31" placeholder="e.g. . or value">
+                    <small>Use <strong>.</strong> for direct numeric payloads (e.g., 0.92) or a JSON key (e.g., <strong>value</strong>)</small>
+                </div>
+
+                <hr style="border: none; border-top: 1px solid #e5e5ea; margin: 18px 0;">
+
+                <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #1d1d1f;">Colors & Thresholds</h3>
+
+                <div class="energy-category">
+                    <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1d1d1f;">Solar</h4>
+
+                    <div class="form-group">
+                        <label for="energy_solar_bar_max_kw">Bar Max (kW)</label>
+                        <input type="number" id="energy_solar_bar_max_kw" name="energy_solar_bar_max_kw" min="0.1" max="100" step="0.1" placeholder="3.0">
+                        <small>Full-scale max for Solar bar.</small>
+                    </div>
+
+                    <div class="energy-threshold-map" data-prefix="energy_solar">
+                        <div class="energy-threshold-row">
+                            <input class="energy-color" type="color" id="energy_solar_color_good" name="energy_solar_color_good" value="#00ff00" aria-label="Solar Good Color">
+                            <span class="energy-ineq">-∞ <span class="energy-to">to</span></span>
+                            <input class="energy-threshold" type="number" id="energy_solar_threshold_0_kw" name="energy_solar_threshold_0_kw" min="0" max="100" step="0.1" placeholder="0.5" aria-label="Solar T0 (kW)">
+                            <span class="energy-unit">kW</span>
+                        </div>
+                        <div class="energy-threshold-row">
+                            <input class="energy-color" type="color" id="energy_solar_color_ok" name="energy_solar_color_ok" value="#ffffff" aria-label="Solar OK Color">
+                            <span class="energy-ineq"><span id="energy_solar_t0_value">T0</span> <span class="energy-to">to</span></span>
+                            <input class="energy-threshold" type="number" id="energy_solar_threshold_1_kw" name="energy_solar_threshold_1_kw" min="0" max="100" step="0.1" placeholder="1.5" aria-label="Solar T1 (kW)">
+                            <span class="energy-unit">kW</span>
+                        </div>
+                        <div class="energy-threshold-row">
+                            <input class="energy-color" type="color" id="energy_solar_color_attention" name="energy_solar_color_attention" value="#ffa500" aria-label="Solar Attention Color">
+                            <span class="energy-ineq"><span id="energy_solar_t1_value">T1</span> <span class="energy-to">to</span></span>
+                            <input class="energy-threshold" type="number" id="energy_solar_threshold_2_kw" name="energy_solar_threshold_2_kw" min="0" max="100" step="0.1" placeholder="3.0" aria-label="Solar T2 (kW)">
+                            <span class="energy-unit">kW</span>
+                        </div>
+                        <div class="energy-threshold-row">
+                            <input class="energy-color" type="color" id="energy_solar_color_warning" name="energy_solar_color_warning" value="#ff0000" aria-label="Solar Warning Color">
+                            <span class="energy-ineq"><span id="energy_solar_t2_value">T2</span> <span class="energy-to">to</span></span>
+                            <span class="energy-bound">+∞</span>
+                        </div>
+                        <small>Must be increasing.</small>
+                    </div>
+                </div>
+
+                <div class="energy-category">
+                    <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1d1d1f;">Home (Solar + Grid)</h4>
+
+                    <div class="form-group">
+                        <label for="energy_home_bar_max_kw">Bar Max (kW)</label>
+                        <input type="number" id="energy_home_bar_max_kw" name="energy_home_bar_max_kw" min="0.1" max="100" step="0.1" placeholder="3.0">
+                        <small>Full-scale max for Home bar.</small>
+                    </div>
+
+                    <div class="energy-threshold-map" data-prefix="energy_home">
+                        <div class="energy-threshold-row">
+                            <input class="energy-color" type="color" id="energy_home_color_good" name="energy_home_color_good" value="#00ff00" aria-label="Home Good Color">
+                            <span class="energy-ineq">-∞ <span class="energy-to">to</span></span>
+                            <input class="energy-threshold" type="number" id="energy_home_threshold_0_kw" name="energy_home_threshold_0_kw" min="0" max="100" step="0.1" placeholder="0.5" aria-label="Home T0 (kW)">
+                            <span class="energy-unit">kW</span>
+                        </div>
+                        <div class="energy-threshold-row">
+                            <input class="energy-color" type="color" id="energy_home_color_ok" name="energy_home_color_ok" value="#ffffff" aria-label="Home OK Color">
+                            <span class="energy-ineq"><span id="energy_home_t0_value">T0</span> <span class="energy-to">to</span></span>
+                            <input class="energy-threshold" type="number" id="energy_home_threshold_1_kw" name="energy_home_threshold_1_kw" min="0" max="100" step="0.1" placeholder="1.5" aria-label="Home T1 (kW)">
+                            <span class="energy-unit">kW</span>
+                        </div>
+                        <div class="energy-threshold-row">
+                            <input class="energy-color" type="color" id="energy_home_color_attention" name="energy_home_color_attention" value="#ffa500" aria-label="Home Attention Color">
+                            <span class="energy-ineq"><span id="energy_home_t1_value">T1</span> <span class="energy-to">to</span></span>
+                            <input class="energy-threshold" type="number" id="energy_home_threshold_2_kw" name="energy_home_threshold_2_kw" min="0" max="100" step="0.1" placeholder="3.0" aria-label="Home T2 (kW)">
+                            <span class="energy-unit">kW</span>
+                        </div>
+                        <div class="energy-threshold-row">
+                            <input class="energy-color" type="color" id="energy_home_color_warning" name="energy_home_color_warning" value="#ff0000" aria-label="Home Warning Color">
+                            <span class="energy-ineq"><span id="energy_home_t2_value">T2</span> <span class="energy-to">to</span></span>
+                            <span class="energy-bound">+∞</span>
+                        </div>
+                        <small>Must be increasing.</small>
+                    </div>
+                </div>
+
+                <div class="energy-category">
+                    <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1d1d1f;">Grid</h4>
+
+                    <div class="form-group">
+                        <label for="energy_grid_bar_max_kw">Bar Max (kW)</label>
+                        <input type="number" id="energy_grid_bar_max_kw" name="energy_grid_bar_max_kw" min="0.1" max="100" step="0.1" placeholder="3.0">
+                        <small>Full-scale max for Grid bar.</small>
+                    </div>
+
+                    <div class="energy-threshold-map" data-prefix="energy_grid">
+                        <div class="energy-threshold-row">
+                            <input class="energy-color" type="color" id="energy_grid_color_good" name="energy_grid_color_good" value="#00ff00" aria-label="Grid Good Color">
+                            <span class="energy-ineq">-∞ <span class="energy-to">to</span></span>
+                            <input class="energy-threshold" type="number" id="energy_grid_threshold_0_kw" name="energy_grid_threshold_0_kw" min="-100" max="100" step="0.1" placeholder="-1.0" aria-label="Grid T0 (kW)">
+                            <span class="energy-unit">kW</span>
+                        </div>
+                        <div class="energy-threshold-row">
+                            <input class="energy-color" type="color" id="energy_grid_color_ok" name="energy_grid_color_ok" value="#ffffff" aria-label="Grid OK Color">
+                            <span class="energy-ineq"><span id="energy_grid_t0_value">T0</span> <span class="energy-to">to</span></span>
+                            <input class="energy-threshold" type="number" id="energy_grid_threshold_1_kw" name="energy_grid_threshold_1_kw" min="-100" max="100" step="0.1" placeholder="0.5" aria-label="Grid T1 (kW)">
+                            <span class="energy-unit">kW</span>
+                        </div>
+                        <div class="energy-threshold-row">
+                            <input class="energy-color" type="color" id="energy_grid_color_attention" name="energy_grid_color_attention" value="#ffa500" aria-label="Grid Attention Color">
+                            <span class="energy-ineq"><span id="energy_grid_t1_value">T1</span> <span class="energy-to">to</span></span>
+                            <input class="energy-threshold" type="number" id="energy_grid_threshold_2_kw" name="energy_grid_threshold_2_kw" min="-100" max="100" step="0.1" placeholder="3.0" aria-label="Grid T2 (kW)">
+                            <span class="energy-unit">kW</span>
+                        </div>
+                        <div class="energy-threshold-row">
+                            <input class="energy-color" type="color" id="energy_grid_color_warning" name="energy_grid_color_warning" value="#ff0000" aria-label="Grid Warning Color">
+                            <span class="energy-ineq"><span id="energy_grid_t2_value">T2</span> <span class="energy-to">to</span></span>
+                            <span class="energy-bound">+∞</span>
+                        </div>
+                        <small>Signed kW. Must be increasing.</small>
+                    </div>
+                </div>
+
+                <hr style="border: none; border-top: 1px solid #e5e5ea; margin: 18px 0;">
+
+                <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #1d1d1f;">Warning Behavior</h3>
+
+                <div class="grid-2col">
+                    <section class="section" style="padding: 0; background: transparent; box-shadow: none;">
+                        <div class="form-group">
+                            <label for="energy_alarm_pulse_cycle_ms">Pulse Cycle (ms)</label>
+                            <input type="number" id="energy_alarm_pulse_cycle_ms" name="energy_alarm_pulse_cycle_ms" min="200" max="10000" step="50" placeholder="2000">
+                            <small>Full dark → peak → dark cycle time.</small>
+                        </div>
+                    </section>
+                    <section class="section" style="padding: 0; background: transparent; box-shadow: none;">
+                            <div class="form-group">
+                                <label for="energy_alarm_pulse_peak_pct">Pulse Intensity (%)</label>
+                                <input type="number" id="energy_alarm_pulse_peak_pct" name="energy_alarm_pulse_peak_pct" min="0" max="100" step="1" placeholder="100">
+                                <small>Peak background intensity. 0 disables the flash; 100 is full peak color.</small>
+                            </div>
+                    </section>
+                    <section class="section" style="padding: 0; background: transparent; box-shadow: none;">
+                        <div class="form-group">
+                            <label for="energy_alarm_clear_delay_ms">Clear Delay (ms)</label>
+                            <input type="number" id="energy_alarm_clear_delay_ms" name="energy_alarm_clear_delay_ms" min="0" max="60000" step="50" placeholder="800">
+                            <small>Wait this long after warning clears before fading out.</small>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="form-group">
+                    <label for="energy_alarm_clear_hysteresis_mkw">Clear Hysteresis (mW)</label>
+                    <input type="number" id="energy_alarm_clear_hysteresis_mkw" name="energy_alarm_clear_hysteresis_mkw" min="0" max="100000" step="10" placeholder="100">
+                    <small>Prevents flicker around T2: must drop below (T2 − hysteresis) to clear.</small>
+                </div>
+            </section>
+
             <!-- Display Settings Section (hidden if no backlight support) -->
             <section class="section" id="display-settings-section" style="display:none;">
                 <h2>🖥️ Display Settings</h2>
