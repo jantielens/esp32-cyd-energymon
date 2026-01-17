@@ -53,6 +53,15 @@ def parse_boards_from_config_sh(config_sh: Path) -> List[str]:
     return ordered
 
 
+def parse_boards_from_config_files(config_sh: Path, config_project_sh: Optional[Path]) -> List[str]:
+    boards = parse_boards_from_config_sh(config_sh)
+    if config_project_sh and config_project_sh.exists():
+        project_boards = parse_boards_from_config_sh(config_project_sh)
+        if project_boards:
+            return project_boards
+    return boards
+
+
 def strip_line_comment(value: str) -> str:
     # Remove // comments (naive but works for this repo’s header style)
     if "//" in value:
@@ -518,9 +527,10 @@ def replace_marked_section(document: str, marker: str, replacement: str) -> str:
 def cmd_build(args: argparse.Namespace) -> None:
     root = repo_root()
     config_sh = root / "config.sh"
+    config_project_sh = root / "config.project.sh"
     board = args.board
 
-    boards = parse_boards_from_config_sh(config_sh)
+    boards = parse_boards_from_config_files(config_sh, config_project_sh)
     if board not in boards:
         raise SystemExit(
             f"Unknown board '{board}'. Expected one of: " + ", ".join(boards)
@@ -648,11 +658,12 @@ def cmd_md(args: argparse.Namespace) -> None:
     root = repo_root()
 
     config_sh = root / "config.sh"
+    config_project_sh = root / "config.project.sh"
     board_config_h = root / "src" / "app" / "board_config.h"
     lv_conf_h = root / "src" / "app" / "lv_conf.h"
     src_root = root / "src"
 
-    boards = parse_boards_from_config_sh(config_sh)
+    boards = parse_boards_from_config_files(config_sh, config_project_sh)
     defaults, _unconditional = parse_board_config_defaults(board_config_h)
     descriptions = parse_board_config_descriptions(board_config_h)
 

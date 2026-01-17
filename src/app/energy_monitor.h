@@ -24,4 +24,8 @@ void energy_monitor_set_grid(float value, uint32_t now_ms);
 // Read current state. If clear_updates is true, the *_updated flags are cleared.
 EnergyMonitorState energy_monitor_get_state(bool clear_updates);
 
+// True when any category exceeds its configured warning (T2) threshold.
+struct DeviceConfig;
+bool energy_monitor_has_warning(const DeviceConfig* config);
+
 #endif // ENERGY_MONITOR_H

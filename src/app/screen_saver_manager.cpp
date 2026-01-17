@@ -5,6 +5,7 @@
 #include "screen_saver_manager.h"
 #include "log_manager.h"
 #include "display_manager.h"
+#include "energy_monitor.h"
 
 #if HAS_TOUCH
 #include "touch_manager.h"
@@ -12,6 +13,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
+
 
 namespace {
 
@@ -38,6 +40,8 @@ volatile bool g_pending_activity_wake = false;
 #if HAS_TOUCH
 bool g_prev_touch = false;
 #endif
+
+bool g_warning_screen_active = false;
 
 static bool is_enabled() {
     if (!g_config) return false;
@@ -149,9 +153,19 @@ static void handle_pending_requests() {
         // If both are requested, prefer wake.
         // Sleep is a manual override and should work even when the feature is disabled.
         if (!doWake) {
-            const uint8_t from = g_current_brightness;
-            start_fade(ScreenSaverState::FadingOut, from, 0, fade_out_ms());
-            LOGI("SAVER", "Sleep requested");
+            if (energy_monitor_has_warning(g_config)) {
+                const uint8_t target = config_brightness();
+                g_current_brightness = target;
+                g_target_brightness = target;
+                apply_brightness(target);
+                g_state = ScreenSaverState::Asleep;
+                display_manager_show_warning_screen();
+                g_warning_screen_active = true;
+                LOGI("SAVER", "Sleep requested with warning (warning screen)");
+            } else {
+                start_fade(ScreenSaverState::FadingOut, g_current_brightness, 0, fade_out_ms());
+                LOGI("SAVER", "Sleep requested");
+            }
         }
     }
 
@@ -163,6 +177,11 @@ static void handle_pending_requests() {
         // Already awake at target brightness; nothing to do.
         if (g_state == ScreenSaverState::Awake && from == target) {
             return;
+        }
+
+        if (g_warning_screen_active) {
+            display_manager_return_from_warning_screen();
+            g_warning_screen_active = false;
         }
 
         #if HAS_TOUCH
@@ -223,15 +242,25 @@ static void maybe_auto_sleep() {
 
     const uint32_t now = millis();
     if (now - g_last_activity_ms >= toMs) {
-        start_fade(ScreenSaverState::FadingOut, g_current_brightness, 0, fade_out_ms());
-        LOGI("SAVER", "Auto-sleep (timeout)");
+        if (energy_monitor_has_warning(g_config)) {
+            const uint8_t target = config_brightness();
+            g_current_brightness = target;
+            g_target_brightness = target;
+            apply_brightness(target);
+            g_state = ScreenSaverState::Asleep;
+            display_manager_show_warning_screen();
+            g_warning_screen_active = true;
+            LOGI("SAVER", "Auto-sleep (timeout) with warning (warning screen)");
+        } else {
+            start_fade(ScreenSaverState::FadingOut, g_current_brightness, 0, fade_out_ms());
+            LOGI("SAVER", "Auto-sleep (timeout)");
+        }
     }
 }
 
 #if HAS_TOUCH
 static void poll_touch_activity() {
     if (!g_config) return;
-    if (!g_config->screen_saver_wake_on_touch) return;
 
     // Avoid competing with LVGL's indev polling while awake.
     // Only poll the raw touch state to wake the backlight when sleeping/dimming.
@@ -255,6 +284,7 @@ void screen_saver_manager_init(DeviceConfig* config) {
     g_state = ScreenSaverState::Awake;
     g_last_activity_ms = millis();
     g_prev_enabled = is_enabled();
+    g_warning_screen_active = false;
 
     // Clear any early-boot cross-task requests for deterministic startup.
     portENTER_CRITICAL(&g_mux);
@@ -305,6 +335,33 @@ void screen_saver_manager_loop() {
 
     handle_pending_requests();
 
+    // While asleep, show warning screen with backlight on when warning is active.
+    // If warning clears, return to previous screen and turn backlight off.
+    if (g_state == ScreenSaverState::Asleep) {
+        if (energy_monitor_has_warning(g_config)) {
+            const uint8_t target = config_brightness();
+            if (g_current_brightness != target) {
+                g_current_brightness = target;
+                g_target_brightness = target;
+                apply_brightness(target);
+            }
+            if (!g_warning_screen_active) {
+                display_manager_show_warning_screen();
+                g_warning_screen_active = true;
+            }
+        } else {
+            if (g_warning_screen_active) {
+                display_manager_return_from_warning_screen();
+                g_warning_screen_active = false;
+            }
+            if (g_current_brightness != 0) {
+                g_current_brightness = 0;
+                g_target_brightness = 0;
+                apply_brightness(0);
+            }
+        }
+    }
+
     update_fade();
     maybe_auto_sleep();
 
@@ -321,6 +378,11 @@ void screen_saver_manager_loop() {
     }
     #endif
 }
+
+void screen_saver_manager_lvgl_update() {
+    // No-op: warning UI is handled via a dedicated WarningScreen.
+}
+
 
 void screen_saver_manager_notify_activity(bool wake) {
     request_activity(wake);

@@ -33,8 +33,8 @@ static uint16_t g_perf_frames_in_window = 0;
 DisplayManager* displayManager = nullptr;
 
 DisplayManager::DisplayManager(DeviceConfig* cfg) 
-        : driver(nullptr), config(cfg), currentScreen(nullptr), previousScreen(nullptr), pendingScreen(nullptr), 
-            infoScreen(cfg, this), energyMonitorScreen(cfg, this), testScreen(this),
+        : driver(nullptr), config(cfg), currentScreen(nullptr), previousScreen(nullptr), pendingScreen(nullptr), warningPreviousScreen(nullptr),
+            infoScreen(cfg, this), energyMonitorScreen(cfg, this), testScreen(this), warningScreen(cfg),
       #if HAS_IMAGE_API
       directImageScreen(this),
       #endif
@@ -95,6 +95,7 @@ DisplayManager::~DisplayManager() {
     infoScreen.destroy();
     energyMonitorScreen.destroy();
     testScreen.destroy();
+    warningScreen.destroy();
     
     #if HAS_IMAGE_API
     directImageScreen.destroy();
@@ -278,6 +279,7 @@ void DisplayManager::lvglTask(void* pvParameter) {
         if (mgr->currentScreen) {
             mgr->currentScreen->update();
         }
+
         
         // Flush canvas buffer only when LVGL produced draw data.
         if (mgr->flushPending) {
@@ -436,6 +438,7 @@ void DisplayManager::init() {
     infoScreen.create();
     energyMonitorScreen.create();
     testScreen.create();
+    warningScreen.create();
     #if HAS_IMAGE_API
     #if LV_USE_IMG
     lvglImageScreen.create();
@@ -490,6 +493,29 @@ void DisplayManager::showTest() {
     // Defer screen switch to lvglTask (non-blocking)
     pendingScreen = &testScreen;
     LOGI("Display", "Queued switch to TestScreen");
+}
+
+void DisplayManager::showWarningScreen() {
+    if (currentScreen == &warningScreen) {
+        return;
+    }
+
+    warningPreviousScreen = currentScreen;
+    pendingScreen = &warningScreen;
+    LOGI("Display", "Queued switch to WarningScreen");
+}
+
+void DisplayManager::returnFromWarningScreen() {
+    Screen* target = warningPreviousScreen ? warningPreviousScreen : &infoScreen;
+    warningPreviousScreen = nullptr;
+
+    // If we're already on the target, do nothing.
+    if (currentScreen == target) {
+        return;
+    }
+
+    pendingScreen = target;
+    LOGI("Display", "Queued return from WarningScreen");
 }
 
 #if HAS_IMAGE_API
@@ -608,6 +634,18 @@ void display_manager_show_info() {
 void display_manager_show_test() {
     if (displayManager) {
         displayManager->showTest();
+    }
+}
+
+void display_manager_show_warning_screen() {
+    if (displayManager) {
+        displayManager->showWarningScreen();
+    }
+}
+
+void display_manager_return_from_warning_screen() {
+    if (displayManager) {
+        displayManager->returnFromWarningScreen();
     }
 }
 

@@ -33,6 +33,7 @@ void screen_saver_manager_init(DeviceConfig* config);
 // Call frequently from loop()
 void screen_saver_manager_loop();
 
+
 // Activity resets the inactivity timer; optionally wakes immediately (with fade)
 void screen_saver_manager_notify_activity(bool wake);
 

@@ -9,6 +9,7 @@
 #include "screens/info_screen.h"
 #include "screens/energy_monitor_screen.h"
 #include "screens/test_screen.h"
+#include "screens/warning_screen.h"
 
 #if HAS_IMAGE_API
 #include "screens/direct_image_screen.h"
@@ -67,6 +68,7 @@ private:
     Screen* currentScreen;
     Screen* previousScreen;  // Track previous screen for return navigation
     Screen* pendingScreen;   // Deferred screen switch (processed in lvglTask)
+    Screen* warningPreviousScreen;  // Track previous screen when showing warning
 
     // Defer small LVGL UI updates (like splash status) to the LVGL task.
     char pendingSplashStatus[96];
@@ -82,6 +84,7 @@ private:
     InfoScreen infoScreen;
     EnergyMonitorScreen energyMonitorScreen;
     TestScreen testScreen;
+    WarningScreen warningScreen;
     
     #if HAS_IMAGE_API
     DirectImageScreen directImageScreen;
@@ -132,6 +135,8 @@ public:
     void showEnergyMonitor();
     void showInfo();
     void showTest();
+    void showWarningScreen();
+    void returnFromWarningScreen();
     
     #if HAS_IMAGE_API
     void showDirectImage();
@@ -196,6 +201,8 @@ void display_manager_show_splash();
 void display_manager_show_energy_monitor();
 void display_manager_show_info();
 void display_manager_show_test();
+void display_manager_show_warning_screen();
+void display_manager_return_from_warning_screen();
 void display_manager_show_screen(const char* screen_id, bool* success);  // success is optional output
 const char* display_manager_get_current_screen_id();
 const ScreenInfo* display_manager_get_available_screens(size_t* count);

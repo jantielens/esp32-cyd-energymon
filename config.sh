@@ -56,11 +56,6 @@ PROJECT_DISPLAY_NAME="ESP32 Template"
 #   ["cyd-v2"]="esp32:esp32:esp32"                                                # CYD display v2 (same FQBN as classic ESP32)
 
 declare -A FQBN_TARGETS=(
-    ["esp32-nodisplay"]="esp32:esp32:esp32" # Classic ESP32 dev module (no display)
-    ["cyd-v2"]="esp32:esp32:esp32:PartitionScheme=huge_app" # CYD v2 display (ESP32 + display; larger app partition)
-    ["esp32c3-waveshare-169-st7789v2"]="esp32:esp32:nologo_esp32c3_super_mini:PartitionScheme=ota_1_9mb,CDCOnBoot=default" # ESP32-C3 Super Mini + Waveshare 1.69\" ST7789V2 (240x280; OTA-friendly partitions)
-    ["jc3248w535"]="esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB,USBMode=hwcdc,CDCOnBoot=cdc" # ESP32-S3 JC3248W535 (16MB + OPI PSRAM)
-    ["jc3636w518"]="esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB,USBMode=hwcdc,CDCOnBoot=cdc" # ESP32-S3 JC3636W518 (16MB + OPI PSRAM)
 )
 
 # Default board (used when only one board is configured)
