@@ -18,6 +18,9 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 
+#include <math.h>
+#include <stdlib.h>
+
 #include <esp_heap_caps.h>
 
 #include <freertos/FreeRTOS.h>
@@ -33,6 +36,11 @@ static struct {
     uint8_t* buf;
 } g_config_post = {false, 0, 0, 0, nullptr};
 
+#if HAS_MQTT
+// AsyncWebServer callbacks run on the AsyncTCP task. Defer MQTT reconnect to main loop.
+static volatile bool g_pending_mqtt_reconnect_request = false;
+#endif
+
 static void config_post_reset() {
     if (g_config_post.buf) {
         heap_caps_free(g_config_post.buf);
@@ -42,6 +50,16 @@ static void config_post_reset() {
     g_config_post.total = 0;
     g_config_post.received = 0;
     g_config_post.started_ms = 0;
+}
+
+bool web_portal_config_take_mqtt_reconnect_request() {
+    #if HAS_MQTT
+    if (g_pending_mqtt_reconnect_request) {
+        g_pending_mqtt_reconnect_request = false;
+        return true;
+    }
+    #endif
+    return false;
 }
 
 void web_portal_config_loop() {
@@ -59,6 +77,45 @@ void web_portal_config_loop() {
     }
 }
 
+// ===== ENERGY MONITOR HELPERS =====
+static bool parse_color_hex_rgb(const JsonVariantConst &v, uint32_t *out_rgb) {
+    if (!out_rgb) return false;
+
+    // Accept: "#RRGGBB", "RRGGBB", "0xRRGGBB", or numeric.
+    if (v.is<uint32_t>()) {
+        *out_rgb = ((uint32_t)v.as<uint32_t>()) & 0xFFFFFF;
+        return true;
+    }
+    if (!v.is<const char*>()) return false;
+    const char *s = v.as<const char*>();
+    if (!s) return false;
+
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
+    if (*s == '#') s++;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) s += 2;
+
+    char *endp = nullptr;
+    unsigned long val = strtoul(s, &endp, 16);
+    if (!endp || endp == s) return false;
+    *out_rgb = ((uint32_t)val) & 0xFFFFFF;
+    return true;
+}
+
+static void format_color_hex_rgb(uint32_t rgb, char out[8]) {
+    snprintf(out, 8, "#%06lX", (unsigned long)(rgb & 0xFFFFFF));
+}
+
+static float mkw_to_kw(int32_t mkw) {
+    return (float)mkw / 1000.0f;
+}
+
+static int32_t kw_to_mkw(float kw) {
+    if (!(kw >= 0.0f)) return 0;
+    // clamp to 0..100kW for sanity
+    if (kw > 100.0f) kw = 100.0f;
+    return (int32_t)lroundf(kw * 1000.0f);
+}
+
 void handleGetConfig(AsyncWebServerRequest *request) {
     if (!portal_auth_gate(request)) return;
 
@@ -69,7 +126,7 @@ void handleGetConfig(AsyncWebServerRequest *request) {
     }
 
     // Create JSON response (don't include passwords)
-    std::shared_ptr<BasicJsonDocument<PsramJsonAllocator>> doc = make_psram_json_doc(2304);
+    std::shared_ptr<BasicJsonDocument<PsramJsonAllocator>> doc = make_psram_json_doc(4096);
     if (doc && doc->capacity() > 0) {
         (*doc)["wifi_ssid"] = current_config->wifi_ssid;
         (*doc)["wifi_password"] = ""; // Don't send password
@@ -96,6 +153,64 @@ void handleGetConfig(AsyncWebServerRequest *request) {
         (*doc)["mqtt_username"] = current_config->mqtt_username;
         (*doc)["mqtt_password"] = "";
         (*doc)["mqtt_interval_seconds"] = current_config->mqtt_interval_seconds;
+
+        // Energy Monitor MQTT subscription settings
+        (*doc)["mqtt_topic_solar"] = current_config->mqtt_topic_solar;
+        (*doc)["mqtt_topic_grid"] = current_config->mqtt_topic_grid;
+        (*doc)["mqtt_solar_value_path"] = current_config->mqtt_solar_value_path;
+        (*doc)["mqtt_grid_value_path"] = current_config->mqtt_grid_value_path;
+
+        // Energy Monitor UI scaling (kW)
+        (*doc)["energy_solar_bar_max_kw"] = current_config->energy_solar_bar_max_kw;
+        (*doc)["energy_home_bar_max_kw"] = current_config->energy_home_bar_max_kw;
+        (*doc)["energy_grid_bar_max_kw"] = current_config->energy_grid_bar_max_kw;
+
+        // Energy Monitor warning behavior
+        (*doc)["energy_alarm_pulse_cycle_ms"] = current_config->energy_alarm_pulse_cycle_ms;
+        (*doc)["energy_alarm_pulse_peak_pct"] = current_config->energy_alarm_pulse_peak_pct;
+        (*doc)["energy_alarm_clear_delay_ms"] = current_config->energy_alarm_clear_delay_ms;
+        (*doc)["energy_alarm_clear_hysteresis_mkw"] = current_config->energy_alarm_clear_hysteresis_mkw;
+
+        // Energy Monitor per-category colors + thresholds
+        {
+            char c[8];
+
+            format_color_hex_rgb(current_config->energy_solar_colors.color_good_rgb, c);
+            (*doc)["energy_solar_color_good"] = c;
+            format_color_hex_rgb(current_config->energy_solar_colors.color_ok_rgb, c);
+            (*doc)["energy_solar_color_ok"] = c;
+            format_color_hex_rgb(current_config->energy_solar_colors.color_attention_rgb, c);
+            (*doc)["energy_solar_color_attention"] = c;
+            format_color_hex_rgb(current_config->energy_solar_colors.color_warning_rgb, c);
+            (*doc)["energy_solar_color_warning"] = c;
+            (*doc)["energy_solar_threshold_0_kw"] = mkw_to_kw(current_config->energy_solar_colors.threshold_mkw[0]);
+            (*doc)["energy_solar_threshold_1_kw"] = mkw_to_kw(current_config->energy_solar_colors.threshold_mkw[1]);
+            (*doc)["energy_solar_threshold_2_kw"] = mkw_to_kw(current_config->energy_solar_colors.threshold_mkw[2]);
+
+            format_color_hex_rgb(current_config->energy_home_colors.color_good_rgb, c);
+            (*doc)["energy_home_color_good"] = c;
+            format_color_hex_rgb(current_config->energy_home_colors.color_ok_rgb, c);
+            (*doc)["energy_home_color_ok"] = c;
+            format_color_hex_rgb(current_config->energy_home_colors.color_attention_rgb, c);
+            (*doc)["energy_home_color_attention"] = c;
+            format_color_hex_rgb(current_config->energy_home_colors.color_warning_rgb, c);
+            (*doc)["energy_home_color_warning"] = c;
+            (*doc)["energy_home_threshold_0_kw"] = mkw_to_kw(current_config->energy_home_colors.threshold_mkw[0]);
+            (*doc)["energy_home_threshold_1_kw"] = mkw_to_kw(current_config->energy_home_colors.threshold_mkw[1]);
+            (*doc)["energy_home_threshold_2_kw"] = mkw_to_kw(current_config->energy_home_colors.threshold_mkw[2]);
+
+            format_color_hex_rgb(current_config->energy_grid_colors.color_good_rgb, c);
+            (*doc)["energy_grid_color_good"] = c;
+            format_color_hex_rgb(current_config->energy_grid_colors.color_ok_rgb, c);
+            (*doc)["energy_grid_color_ok"] = c;
+            format_color_hex_rgb(current_config->energy_grid_colors.color_attention_rgb, c);
+            (*doc)["energy_grid_color_attention"] = c;
+            format_color_hex_rgb(current_config->energy_grid_colors.color_warning_rgb, c);
+            (*doc)["energy_grid_color_warning"] = c;
+            (*doc)["energy_grid_threshold_0_kw"] = mkw_to_kw(current_config->energy_grid_colors.threshold_mkw[0]);
+            (*doc)["energy_grid_threshold_1_kw"] = mkw_to_kw(current_config->energy_grid_colors.threshold_mkw[1]);
+            (*doc)["energy_grid_threshold_2_kw"] = mkw_to_kw(current_config->energy_grid_colors.threshold_mkw[2]);
+        }
 
         // Web portal Basic Auth (password not returned)
         (*doc)["basic_auth_enabled"] = current_config->basic_auth_enabled;
@@ -131,6 +246,21 @@ void handlePostConfig(AsyncWebServerRequest *request, uint8_t *data, size_t len,
         request->send(500, "application/json", "{\"success\":false,\"message\":\"Config not initialized\"}");
         return;
     }
+
+    #if HAS_MQTT
+    char prev_mqtt_host[CONFIG_MQTT_HOST_MAX_LEN] = {0};
+    char prev_mqtt_username[CONFIG_MQTT_USERNAME_MAX_LEN] = {0};
+    char prev_mqtt_password[CONFIG_MQTT_PASSWORD_MAX_LEN] = {0};
+    char prev_mqtt_topic_solar[CONFIG_MQTT_TOPIC_MAX_LEN] = {0};
+    char prev_mqtt_topic_grid[CONFIG_MQTT_TOPIC_MAX_LEN] = {0};
+    uint16_t prev_mqtt_port = current_config->mqtt_port;
+
+    strlcpy(prev_mqtt_host, current_config->mqtt_host, sizeof(prev_mqtt_host));
+    strlcpy(prev_mqtt_username, current_config->mqtt_username, sizeof(prev_mqtt_username));
+    strlcpy(prev_mqtt_password, current_config->mqtt_password, sizeof(prev_mqtt_password));
+    strlcpy(prev_mqtt_topic_solar, current_config->mqtt_topic_solar, sizeof(prev_mqtt_topic_solar));
+    strlcpy(prev_mqtt_topic_grid, current_config->mqtt_topic_grid, sizeof(prev_mqtt_topic_grid));
+    #endif
 
     // Accumulate the full body (chunk-safe) then parse once.
     if (index == 0) {
@@ -225,7 +355,7 @@ void handlePostConfig(AsyncWebServerRequest *request, uint8_t *data, size_t len,
     if (body) body[body_len] = 0;
     portEXIT_CRITICAL(&g_config_post_mux);
 
-    BasicJsonDocument<PsramJsonAllocator> doc(2304);
+    BasicJsonDocument<PsramJsonAllocator> doc(4096);
     DeserializationError error = deserializeJson(doc, body, body_len);
 
     if (error) {
@@ -338,6 +468,174 @@ void handlePostConfig(AsyncWebServerRequest *request, uint8_t *data, size_t len,
         }
     }
 
+    // Energy Monitor MQTT subscription settings
+    if (doc.containsKey("mqtt_topic_solar")) {
+        strlcpy(current_config->mqtt_topic_solar, doc["mqtt_topic_solar"] | "", CONFIG_MQTT_TOPIC_MAX_LEN);
+    }
+    if (doc.containsKey("mqtt_topic_grid")) {
+        strlcpy(current_config->mqtt_topic_grid, doc["mqtt_topic_grid"] | "", CONFIG_MQTT_TOPIC_MAX_LEN);
+    }
+    if (doc.containsKey("mqtt_solar_value_path")) {
+        strlcpy(current_config->mqtt_solar_value_path, doc["mqtt_solar_value_path"] | ".", CONFIG_MQTT_VALUE_PATH_MAX_LEN);
+    }
+    if (doc.containsKey("mqtt_grid_value_path")) {
+        strlcpy(current_config->mqtt_grid_value_path, doc["mqtt_grid_value_path"] | ".", CONFIG_MQTT_VALUE_PATH_MAX_LEN);
+    }
+    if (strlen(current_config->mqtt_solar_value_path) == 0) {
+        strlcpy(current_config->mqtt_solar_value_path, ".", CONFIG_MQTT_VALUE_PATH_MAX_LEN);
+    }
+    if (strlen(current_config->mqtt_grid_value_path) == 0) {
+        strlcpy(current_config->mqtt_grid_value_path, ".", CONFIG_MQTT_VALUE_PATH_MAX_LEN);
+    }
+
+    // Energy Monitor UI scaling (kW)
+    auto read_kw = [&](const char* key, float* out_kw) {
+        if (!doc.containsKey(key) || !out_kw) return;
+        float v;
+        if (doc[key].is<const char*>()) {
+            const char* s = doc[key];
+            v = s ? (float)atof(s) : 0.0f;
+        } else {
+            v = (float)(doc[key] | 0.0f);
+        }
+        if (v < 0.0f) v = 0.0f;
+        if (v > 100.0f) v = 100.0f;
+        *out_kw = v;
+    };
+
+    read_kw("energy_solar_bar_max_kw", &current_config->energy_solar_bar_max_kw);
+    read_kw("energy_home_bar_max_kw", &current_config->energy_home_bar_max_kw);
+    read_kw("energy_grid_bar_max_kw", &current_config->energy_grid_bar_max_kw);
+
+    // Energy Monitor warning behavior
+    auto read_u16 = [&](const char* key, uint16_t* out, uint16_t minV, uint16_t maxV) {
+        if (!doc.containsKey(key) || !out) return;
+        uint32_t v;
+        if (doc[key].is<const char*>()) {
+            const char* s = doc[key];
+            v = (uint32_t)atoi(s ? s : "0");
+        } else {
+            v = (uint32_t)(doc[key] | 0);
+        }
+        if (v < minV) v = minV;
+        if (v > maxV) v = maxV;
+        *out = (uint16_t)v;
+    };
+
+    auto read_i32 = [&](const char* key, int32_t* out, int32_t minV, int32_t maxV) {
+        if (!doc.containsKey(key) || !out) return;
+        int32_t v;
+        if (doc[key].is<const char*>()) {
+            const char* s = doc[key];
+            v = (int32_t)atol(s ? s : "0");
+        } else {
+            v = (int32_t)(doc[key] | 0);
+        }
+        if (v < minV) v = minV;
+        if (v > maxV) v = maxV;
+        *out = v;
+    };
+
+    read_u16("energy_alarm_pulse_cycle_ms", &current_config->energy_alarm_pulse_cycle_ms, 200, 10000);
+    if (doc.containsKey("energy_alarm_pulse_peak_pct")) {
+        uint32_t v;
+        if (doc["energy_alarm_pulse_peak_pct"].is<const char*>()) {
+            const char* s = doc["energy_alarm_pulse_peak_pct"];
+            v = (uint32_t)atoi(s ? s : "0");
+        } else {
+            v = (uint32_t)(doc["energy_alarm_pulse_peak_pct"] | 0);
+        }
+        if (v > 100) v = 100;
+        current_config->energy_alarm_pulse_peak_pct = (uint8_t)v;
+    }
+    read_u16("energy_alarm_clear_delay_ms", &current_config->energy_alarm_clear_delay_ms, 0, 60000);
+    read_i32("energy_alarm_clear_hysteresis_mkw", &current_config->energy_alarm_clear_hysteresis_mkw, 0, 100000);
+
+    // Energy Monitor per-category colors + thresholds
+    auto update_category = [&](const char* prefix, EnergyCategoryColorConfig* cfg) {
+        if (!cfg) return true;
+
+        // Colors
+        {
+            char key[48];
+            uint32_t rgb;
+
+            snprintf(key, sizeof(key), "%s_color_good", prefix);
+            if (doc.containsKey(key) && parse_color_hex_rgb(doc[key], &rgb)) cfg->color_good_rgb = rgb;
+
+            snprintf(key, sizeof(key), "%s_color_ok", prefix);
+            if (doc.containsKey(key) && parse_color_hex_rgb(doc[key], &rgb)) cfg->color_ok_rgb = rgb;
+
+            snprintf(key, sizeof(key), "%s_color_attention", prefix);
+            if (doc.containsKey(key) && parse_color_hex_rgb(doc[key], &rgb)) cfg->color_attention_rgb = rgb;
+
+            snprintf(key, sizeof(key), "%s_color_warning", prefix);
+            if (doc.containsKey(key) && parse_color_hex_rgb(doc[key], &rgb)) cfg->color_warning_rgb = rgb;
+        }
+
+        // Thresholds (kW)
+        bool any_threshold = false;
+        int32_t t0 = cfg->threshold_mkw[0];
+        int32_t t1 = cfg->threshold_mkw[1];
+        int32_t t2 = cfg->threshold_mkw[2];
+
+        auto read_threshold_kw = [&](const char* key, int32_t* out_mkw) {
+            if (!doc.containsKey(key) || !out_mkw) return;
+            float v;
+            if (doc[key].is<const char*>()) {
+                const char* s = doc[key];
+                v = s ? (float)atof(s) : 0.0f;
+            } else {
+                v = (float)(doc[key] | 0.0f);
+            }
+            *out_mkw = kw_to_mkw(v);
+            any_threshold = true;
+        };
+
+        char key0[48];
+        char key1[48];
+        char key2[48];
+        snprintf(key0, sizeof(key0), "%s_threshold_0_kw", prefix);
+        snprintf(key1, sizeof(key1), "%s_threshold_1_kw", prefix);
+        snprintf(key2, sizeof(key2), "%s_threshold_2_kw", prefix);
+        read_threshold_kw(key0, &t0);
+        read_threshold_kw(key1, &t1);
+        read_threshold_kw(key2, &t2);
+
+        if (any_threshold) {
+            if (t0 > t1 || t1 > t2) {
+                return false;
+            }
+            cfg->threshold_mkw[0] = t0;
+            cfg->threshold_mkw[1] = t1;
+            cfg->threshold_mkw[2] = t2;
+        }
+
+        return true;
+    };
+
+    if (!update_category("energy_solar", &current_config->energy_solar_colors)) {
+        request->send(400, "application/json", "{\"success\":false,\"message\":\"Solar thresholds must be increasing\"}");
+        portENTER_CRITICAL(&g_config_post_mux);
+        config_post_reset();
+        portEXIT_CRITICAL(&g_config_post_mux);
+        return;
+    }
+    if (!update_category("energy_home", &current_config->energy_home_colors)) {
+        request->send(400, "application/json", "{\"success\":false,\"message\":\"Home thresholds must be increasing\"}");
+        portENTER_CRITICAL(&g_config_post_mux);
+        config_post_reset();
+        portEXIT_CRITICAL(&g_config_post_mux);
+        return;
+    }
+    if (!update_category("energy_grid", &current_config->energy_grid_colors)) {
+        request->send(400, "application/json", "{\"success\":false,\"message\":\"Grid thresholds must be increasing\"}");
+        portENTER_CRITICAL(&g_config_post_mux);
+        config_post_reset();
+        portEXIT_CRITICAL(&g_config_post_mux);
+        return;
+    }
+
     // Basic Auth enabled
     if (doc.containsKey("basic_auth_enabled")) {
         if (doc["basic_auth_enabled"].is<const char*>()) {
@@ -436,6 +734,15 @@ void handlePostConfig(AsyncWebServerRequest *request, uint8_t *data, size_t len,
     }
     #endif
 
+    #if HAS_MQTT
+    const bool mqtt_changed = (prev_mqtt_port != current_config->mqtt_port) ||
+                              (strcmp(prev_mqtt_host, current_config->mqtt_host) != 0) ||
+                              (strcmp(prev_mqtt_username, current_config->mqtt_username) != 0) ||
+                              (strcmp(prev_mqtt_password, current_config->mqtt_password) != 0) ||
+                              (strcmp(prev_mqtt_topic_solar, current_config->mqtt_topic_solar) != 0) ||
+                              (strcmp(prev_mqtt_topic_grid, current_config->mqtt_topic_grid) != 0);
+    #endif
+
     current_config->magic = CONFIG_MAGIC;
 
     // Validate config
@@ -462,6 +769,12 @@ void handlePostConfig(AsyncWebServerRequest *request, uint8_t *data, size_t len,
             // Schedule reboot after response is sent
             delay(100);
             ESP.restart();
+        } else {
+            #if HAS_MQTT
+            if (mqtt_changed) {
+                g_pending_mqtt_reconnect_request = true;
+            }
+            #endif
         }
     } else {
         LOGE("Portal", "Config save failed");

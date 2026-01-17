@@ -27,6 +27,10 @@
 #include "web_portal_firmware.h"
 #include "web_portal_ap.h"
 
+#if HAS_MQTT
+#include "mqtt_manager.h"
+#endif
+
 #if HAS_DISPLAY
 #include "display_manager.h"
 #include "screen_saver_manager.h"
@@ -220,6 +224,12 @@ void web_portal_handle() {
     web_portal_ap_handle();
 
     web_portal_config_loop();
+
+    #if HAS_MQTT
+    if (web_portal_config_take_mqtt_reconnect_request()) {
+        mqtt_manager_request_reconnect();
+    }
+    #endif
 }
 
 // Check if OTA update is in progress

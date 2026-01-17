@@ -32,10 +32,24 @@
 #define CONFIG_MQTT_HOST_MAX_LEN 64
 #define CONFIG_MQTT_USERNAME_MAX_LEN 32
 #define CONFIG_MQTT_PASSWORD_MAX_LEN 64
+#define CONFIG_MQTT_TOPIC_MAX_LEN 128
+#define CONFIG_MQTT_VALUE_PATH_MAX_LEN 32
 
 // Web portal Basic Auth (STA/full mode only)
 #define CONFIG_BASIC_AUTH_USERNAME_MAX_LEN 32
 #define CONFIG_BASIC_AUTH_PASSWORD_MAX_LEN 64
+
+// Configuration structure
+struct EnergyCategoryColorConfig {
+    // Colors stored as 0xRRGGBB
+    uint32_t color_good_rgb;
+    uint32_t color_ok_rgb;
+    uint32_t color_attention_rgb;
+    uint32_t color_warning_rgb;
+
+    // Thresholds stored as milli-kW to keep NVS stable (kW * 1000)
+    int32_t threshold_mkw[3];
+};
 
 // Configuration structure
 struct DeviceConfig {
@@ -62,6 +76,33 @@ struct DeviceConfig {
     char mqtt_username[CONFIG_MQTT_USERNAME_MAX_LEN];
     char mqtt_password[CONFIG_MQTT_PASSWORD_MAX_LEN];
     uint16_t mqtt_interval_seconds; // 0 disables periodic publish
+
+    // Energy monitor MQTT subscriptions (optional)
+    char mqtt_topic_solar[CONFIG_MQTT_TOPIC_MAX_LEN];
+    char mqtt_topic_grid[CONFIG_MQTT_TOPIC_MAX_LEN];
+    // Path is either "." for direct numeric payloads, or a JSON key (e.g. "value")
+    char mqtt_solar_value_path[CONFIG_MQTT_VALUE_PATH_MAX_LEN];
+    char mqtt_grid_value_path[CONFIG_MQTT_VALUE_PATH_MAX_LEN];
+
+    // Energy monitor UI scaling (kW). Defaults to 3.0.
+    float energy_solar_bar_max_kw;
+    float energy_home_bar_max_kw;
+    float energy_grid_bar_max_kw;
+
+    // Energy monitor warning behavior (T2 alert).
+    // Pulse cycle duration for the breathing background (ms). Example: 2000.
+    uint16_t energy_alarm_pulse_cycle_ms;
+    // Pulse intensity (0-100). 100 = full peak color.
+    uint8_t energy_alarm_pulse_peak_pct;
+    // Anti-flicker: require the alarm condition to be cleared for at least this long before fading out (ms).
+    uint16_t energy_alarm_clear_delay_ms;
+    // Anti-flicker: hysteresis for clearing a T2 alarm (milli-kW). Example: 100 = 0.1 kW.
+    int32_t energy_alarm_clear_hysteresis_mkw;
+
+    // Energy monitor per-category colors and thresholds
+    EnergyCategoryColorConfig energy_solar_colors;
+    EnergyCategoryColorConfig energy_home_colors;
+    EnergyCategoryColorConfig energy_grid_colors;
     
     // Display settings
     uint8_t backlight_brightness;  // 0-100%, default 100

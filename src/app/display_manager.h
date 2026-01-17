@@ -7,6 +7,7 @@
 #include "screens/screen.h"
 #include "screens/splash_screen.h"
 #include "screens/info_screen.h"
+#include "screens/energy_monitor_screen.h"
 #include "screens/test_screen.h"
 
 #if HAS_IMAGE_API
@@ -79,6 +80,7 @@ private:
     // Screen instances (created at init, kept in memory)
     SplashScreen splashScreen;
     InfoScreen infoScreen;
+    EnergyMonitorScreen energyMonitorScreen;
     TestScreen testScreen;
     
     #if HAS_IMAGE_API
@@ -127,6 +129,7 @@ public:
     
     // Navigation API (thread-safe)
     void showSplash();
+    void showEnergyMonitor();
     void showInfo();
     void showTest();
     
@@ -190,6 +193,7 @@ extern DisplayManager* displayManager;
 // C-style interface for app.ino
 void display_manager_init(DeviceConfig* config);
 void display_manager_show_splash();
+void display_manager_show_energy_monitor();
 void display_manager_show_info();
 void display_manager_show_test();
 void display_manager_show_screen(const char* screen_id, bool* success);  // success is optional output

@@ -259,6 +259,110 @@ h2 {
     letter-spacing: -0.3px;
 }
 
+/* Energy Monitor: Threshold map rows */
+.energy-category {
+    padding: 14px 0;
+    border-top: 1px solid #e5e5ea;
+}
+
+.energy-category:first-of-type {
+    border-top: none;
+    padding-top: 0;
+}
+
+.energy-threshold-map {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border: 1px solid #e5e5ea;
+    border-radius: 12px;
+    background: #f5f5f7;
+}
+
+.energy-threshold-row {
+    display: grid;
+    grid-template-columns: 54px 90px 88px 28px;
+    column-gap: 12px;
+    align-items: center;
+    padding: 6px 0;
+}
+
+.energy-color {
+    width: 54px;
+    height: 38px;
+    padding: 0;
+    border: 2px solid #d2d2d7;
+    border-radius: 10px;
+    background: #ffffff;
+    cursor: pointer;
+    overflow: hidden;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.energy-color::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+.energy-color::-webkit-color-swatch {
+    border: 0;
+    border-radius: 8px;
+}
+
+.energy-color::-moz-color-swatch {
+    border: 0;
+    border-radius: 8px;
+}
+
+.energy-color:focus {
+    outline: none;
+    border-color: #007aff;
+    box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.2);
+}
+
+.energy-ineq {
+    font-size: 14px;
+    color: #1d1d1f;
+    white-space: nowrap;
+    justify-self: end;
+    text-align: right;
+}
+
+.energy-to {
+    display: inline-block;
+    font-weight: 700;
+    margin-left: 10px;
+}
+
+.energy-bound {
+    font-size: 14px;
+    color: #1d1d1f;
+    white-space: nowrap;
+}
+
+.energy-threshold {
+    width: 88px;
+    min-width: 0;
+    padding: 10px 12px;
+}
+
+/* Override global number input sizing inside the compact threshold rows */
+.energy-threshold-row input[type="number"].energy-threshold {
+    width: 88px;
+}
+
+.energy-unit {
+    font-size: 13px;
+    color: #86868b;
+    white-space: nowrap;
+}
+
+.energy-threshold-map small {
+    display: block;
+    margin-top: 8px;
+    color: #86868b;
+    font-size: 12px;
+}
+
 /* Form Groups */
 .form-group {
     margin-bottom: 24px;

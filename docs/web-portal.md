@@ -203,6 +203,11 @@ Real-time device health monitoring integrated as a header badge with expandable 
 **Sections:**
 - **👋 Hello World**: Welcome message with customization tip
 - **⚙️ Sample Settings**: Example configuration field (dummy_setting)
+- **⚡ Energy Monitor**: Optional MQTT-driven energy monitor settings
+  - MQTT topics + value paths for Solar/Grid readings
+  - Bar scaling (kW) for Solar/Home/Grid
+  - Per-category colors + thresholds (T0/T1/T2)
+  - Warning behavior (breathing pulse, clear delay, hysteresis)
 
 **Layout:** Two sections side-by-side on desktop (≥768px), stacked on mobile
 
