@@ -263,6 +263,7 @@ When `HAS_DISPLAY` is enabled, the firmware includes a screen saver manager that
 - Wake fades back to the configured `backlight_brightness`.
 - On touch devices, wake can optionally be triggered by touch (`screen_saver_wake_on_touch`).
 - While dimming/asleep/fading in, touch input is suppressed so “wake gestures” can’t click through into LVGL UI navigation.
+- When a warning threshold is exceeded while the device is asleep, a dedicated warning screen is shown with the backlight on; clearing the warning returns to normal sleep.
 
 **Configuration / APIs:**
 - Config fields are exposed via `GET/POST /api/config` (only when `HAS_DISPLAY`).
@@ -359,6 +360,11 @@ public:
 - RGB and CMY color bars
 - Centered grayscale gradient (black to white)
 - Resolution info display
+
+**WarningScreen** (`warning_screen.h/cpp`)
+- Black screen with a warning icon that pulses using the alarm pulse settings
+- Icon position updates periodically to reduce burn-in
+- Shown while the screen saver is active and a warning threshold is exceeded
 
 **DirectImageScreen** (`direct_image_screen.h/cpp`)
 - Blank black LVGL screen for direct LCD hardware writes

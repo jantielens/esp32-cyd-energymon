@@ -546,6 +546,7 @@ Returns current device configuration (passwords excluded).
 - Some fields are build-time gated.
   - Display-related fields (backlight + screen saver) are present when `HAS_DISPLAY` is enabled.
   - Other feature-specific fields may be present depending on firmware configuration.
+  - When a warning threshold is exceeded during sleep, the device can show a warning screen with the backlight on until the warning clears.
 
 #### `POST /api/config`
 

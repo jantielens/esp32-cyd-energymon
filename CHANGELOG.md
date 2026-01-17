@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2026-01-17
+
+### Added
+- Warning screensaver screen with pulsing warning icon that reuses alarm pulse settings
+
+### Changed
+- Screen saver behavior now shows the warning screen (backlight on) when a warning is active during sleep
+- CYD v2 target now uses OTA-capable partitions (`PartitionScheme=ota_1_9mb`) via project config
+
+### Fixed
+- Build flag report now honors `config.project.sh` board overrides
+
 ## [1.0.0] - 2026-01-17
 
 ### Added

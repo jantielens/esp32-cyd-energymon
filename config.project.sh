@@ -36,5 +36,5 @@ PROJECT_DISPLAY_NAME="CYD Energy Monitor"
 #   ["esp32c6"]="esp32:esp32:esp32c6:CDCOnBoot=cdc"                              # ESP32-C6 (USB CDC)
 #   ["cyd-v2"]="esp32:esp32:esp32"                                                # CYD display v2 (same FQBN as classic ESP32)
 declare -A FQBN_TARGETS=(
-    ["cyd-v2"]="esp32:esp32:esp32:PartitionScheme=huge_app"
+    ["cyd-v2"]="esp32:esp32:esp32:PartitionScheme=ota_1_9mb"
  )
